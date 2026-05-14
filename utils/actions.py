@@ -42,6 +42,7 @@ async def tomar_screenshots(page, nombre_tarea):
     path = f"screenshots/{nombre_tarea}.png"
     await page.screenshot(path=path, full_page=True)
     print(f"Evidencia guardada: {path}")
+    return path
 
 async def validar_proceso(page, selector):
     # Verifica si un elemento existe para confirmar que todo va bien
@@ -233,12 +234,13 @@ async def programar_clases_pendientes(page, cantidad=2, sede="GUACARI", dias_des
                 await page.wait_for_selector("#gxp1_b", state="visible", timeout=7000)
             except Exception:
                 print("No apareció ningún popup tras hacer clic en Asignar.")
-                await tomar_screenshots(page, f"6_sin_popup_clase_{programadas + 1}")
+                screenshot = await tomar_screenshots(page, f"6_sin_popup_clase_{programadas + 1}")
                 resultado["fallos"].append({
                     "clase": nombre_clase,
                     "hora_objetivo": HORARIOS_PERMITIDOS[programadas],
                     "motivo": "sin_popup_tras_asignar",
                     "detalle": "No apareció el popup del sistema tras asignar.",
+                    "screenshot": screenshot,
                 })
                 return resultado
 
@@ -249,12 +251,13 @@ async def programar_clases_pendientes(page, cantidad=2, sede="GUACARI", dias_des
             print(f"Popup detectado: '{titulo_popup}'")
             if titulo_popup.lower() != "selección de clases":
                 print("Popup de restricción horaria. Fuera del horario permitido (6am–10pm).")
-                await tomar_screenshots(page, "6_fuera_de_horario")
+                screenshot = await tomar_screenshots(page, "6_fuera_de_horario")
                 resultado["fallos"].append({
                     "clase": nombre_clase,
                     "hora_objetivo": HORARIOS_PERMITIDOS[programadas],
                     "motivo": "fuera_de_horario_programacion",
                     "detalle": f"Popup recibido: {titulo_popup}",
+                    "screenshot": screenshot,
                 })
                 return resultado
 
@@ -372,11 +375,15 @@ async def seleccionar_horario_especifico(page, sede="GUACARI", horario_objetivo=
             print(
                 f"No existe una fila exacta para fecha objetivo y horario permitido: {horario_objetivo}."
             )
-            await tomar_screenshots(page, f"6_horario_no_disponible_{horario_objetivo.replace(':', '_').replace(' ', '_')}")
+            screenshot = await tomar_screenshots(
+                page,
+                f"6_horario_no_disponible_{horario_objetivo.replace(':', '_').replace(' ', '_')}",
+            )
             return {
                 "ok": False,
                 "motivo": "horario_no_disponible",
                 "detalle": f"No hubo match exacto para {horario_objetivo} y fecha objetivo.",
+                "screenshot": screenshot,
             }
 
         await fila_objetivo.click()
