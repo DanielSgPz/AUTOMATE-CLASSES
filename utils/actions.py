@@ -1,6 +1,8 @@
 import os
 import re
-from datetime import datetime, timedelta
+from datetime import timedelta
+
+from utils.timezone import now_colombia
 
 HORARIOS_PERMITIDOS = ["18:00 19:30", "19:30 21:00"]
 
@@ -10,7 +12,7 @@ def _normalizar_texto(texto):
 
 
 def _patrones_fecha_objetivo(dias_desde_hoy=1):
-    fecha_objetivo = datetime.now() + timedelta(days=dias_desde_hoy)
+    fecha_objetivo = now_colombia() + timedelta(days=dias_desde_hoy)
     nombres_dia = {
         0: "LUNES",
         1: "MARTES",
@@ -32,8 +34,28 @@ def _patrones_fecha_objetivo(dias_desde_hoy=1):
 
 
 def _fecha_objetivo_iso(dias_desde_hoy=1):
-    fecha_objetivo = datetime.now() + timedelta(days=dias_desde_hoy)
+    fecha_objetivo = now_colombia() + timedelta(days=dias_desde_hoy)
     return fecha_objetivo.strftime("%Y-%m-%d")
+
+
+def _normalizar_rango_horario(inicio, fin):
+    """Convierte '18:00' + '19:30' a '18:00 19:30'."""
+    inicio_partes = inicio.strip().split(":")
+    fin_partes = fin.strip().split(":")
+    inicio_norm = f"{int(inicio_partes[0]):02d}:{int(inicio_partes[1]):02d}"
+    fin_norm = f"{int(fin_partes[0]):02d}:{int(fin_partes[1]):02d}"
+    return f"{inicio_norm} {fin_norm}"
+
+
+def _inicio_horario(rango):
+    """Extrae la hora de inicio desde un rango 'HH:MM HH:MM'."""
+    return rango.strip().split()[0]
+
+
+def _normalizar_hora(hora):
+    """Normaliza hora flexible (ej: '9:0' -> '09:00')."""
+    partes = hora.strip().split(":")
+    return f"{int(partes[0]):02d}:{int(partes[1]):02d}"
 
 async def tomar_screenshots(page, nombre_tarea):
     if not os.path.exists("screenshots"):
@@ -119,6 +141,142 @@ async def iniciar_programacion_clases(page):
     except Exception as e:
         print(f"No se pudo iniciar la programación: {e}")
         return False
+
+
+async def validar_horario_dia_objetivo(page, dias_desde_hoy=1, horarios_habituales=None, nombre_screenshot="horario_dia_objetivo"):
+    """
+    Abre la ventana 'Horario', navega al día objetivo y detecta qué franjas del horario
+    habitual ya están ocupadas. Retorna las franjas faltantes que deben programarse.
+    """
+    if horarios_habituales is None:
+        horarios_habituales = list(HORARIOS_PERMITIDOS)
+
+    try:
+        print("Abriendo ventana de Horario para validar clases ya programadas...")
+        await page.click("#BUTTON2")
+        await page.wait_for_selector("#gxp0_b", state="visible", timeout=10000)
+
+        frame = page.frame_locator("#gxp0_ifrm")
+        await frame.locator(".dhx_cal_next_button").wait_for(state="visible", timeout=10000)
+
+        # Intentar cambiar a vista de día para que cada clic en "siguiente" avance un día.
+        # En vista semanal, un clic avanzaría 7 días (semana completa) en lugar de 1 día.
+        try:
+            day_tab = frame.locator("[name='day_tab']")
+            if await day_tab.count() > 0:
+                await day_tab.first.click()
+                await page.wait_for_timeout(800)
+                print("Calendario cambiado a vista de día.")
+        except Exception:
+            print("No se pudo cambiar a vista de día; se continúa con la vista actual.")
+
+        for _ in range(dias_desde_hoy):
+            await frame.locator(".dhx_cal_next_button").click()
+            await page.wait_for_timeout(1200)
+
+        fecha_referencia = "(no detectada)"
+        try:
+            fecha_referencia = (await frame.locator(".dhx_cal_date").first.inner_text()).strip()
+        except Exception:
+            try:
+                fecha_referencia = (await frame.locator(".dhx_scale_bar").first.inner_text()).strip()
+            except Exception:
+                pass
+
+        print(f"Calendario posicionado en: {fecha_referencia}")
+
+        eventos = frame.locator(".dhx_cal_event .dhx_title")
+        total_eventos = await eventos.count()
+        horarios_ocupados = set()
+        horario_por_inicio = {_inicio_horario(h): h for h in horarios_habituales}
+
+        for idx in range(total_eventos):
+            titulo = (await eventos.nth(idx).inner_text()).strip()
+            match = re.search(r"\((\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})\)", titulo)
+            if not match:
+                continue
+            inicio = match.group(1)
+            fin = match.group(2)
+            rango = _normalizar_rango_horario(inicio, fin)
+
+            # Match ideal: rango exacto en horario habitual.
+            if rango in horarios_habituales:
+                horarios_ocupados.add(rango)
+                continue
+
+            # Fallback: algunos eventos se renderizan truncados (ej: 19:30-20:00),
+            # pero siguen ocupando el bloque habitual de inicio 19:30.
+            inicio_norm = _normalizar_hora(inicio)
+            if inicio_norm in horario_por_inicio:
+                horarios_ocupados.add(horario_por_inicio[inicio_norm])
+
+        horarios_faltantes = [h for h in horarios_habituales if h not in horarios_ocupados]
+
+        # Para evidencia visual, desplazar el calendario al final dentro del iframe
+        # y mostrar las franjas de tarde/noche (donde suelen estar 18:00 y 19:30).
+        try:
+            iframe_el = page.locator("#gxp0_ifrm")
+            await iframe_el.wait_for(state="attached", timeout=3000)
+            iframe_handle = await iframe_el.element_handle()
+            if iframe_handle is not None:
+                iframe_page = await iframe_handle.content_frame()
+                if iframe_page is not None:
+                    await iframe_page.evaluate(
+                        """
+                        () => {
+                            const objetivos = [
+                                document.querySelector('.dhx_cal_data'),
+                                document.querySelector('.dhx_cal_data .dhx_scale_holder'),
+                                document.scrollingElement,
+                                document.documentElement,
+                                document.body,
+                            ].filter(Boolean);
+
+                            for (const el of objetivos) {
+                                try {
+                                    el.scrollTop = el.scrollHeight;
+                                } catch (_) {
+                                    // no-op
+                                }
+                            }
+                        }
+                        """
+                    )
+                    await page.wait_for_timeout(300)
+        except Exception:
+            print("No se pudo ajustar el scroll interno del calendario para el screenshot.")
+
+        screenshot = await tomar_screenshots(page, nombre_screenshot)
+
+        return {
+            "ok": True,
+            "motivo": "ok",
+            "detalle": "Horario del día objetivo consultado correctamente.",
+            "fecha_referencia": fecha_referencia,
+            "horarios_ocupados": sorted(horarios_ocupados),
+            "horarios_faltantes": horarios_faltantes,
+            "cantidad_a_programar": len(horarios_faltantes),
+            "screenshot": screenshot,
+        }
+    except Exception as e:
+        print(f"Error validando horario del día objetivo: {e}")
+        screenshot = await tomar_screenshots(page, "error_validar_horario_dia_objetivo")
+        return {
+            "ok": False,
+            "motivo": "error_validar_horario_dia_objetivo",
+            "detalle": str(e),
+            "horarios_ocupados": [],
+            "horarios_faltantes": [],
+            "cantidad_a_programar": 0,
+            "screenshot": screenshot,
+        }
+    finally:
+        try:
+            if await page.locator("#gxp0_b").is_visible():
+                await page.click("#gxp0_cls")
+                await page.wait_for_selector("#gxp0_b", state="hidden", timeout=5000)
+        except Exception:
+            pass
     
 async def programar_clase_especifica(page, nombre_clase):
     """
@@ -166,7 +324,7 @@ async def programar_clase_especifica(page, nombre_clase):
         return False
     
     
-async def programar_clases_pendientes(page, cantidad=2, sede="GUACARI", dias_desde_hoy=1):
+async def programar_clases_pendientes(page, cantidad=2, sede="GUACARI", dias_desde_hoy=1, horarios_objetivo=None):
     """
     Busca automáticamente las clases pendientes y programa la cantidad solicitada.
     """
@@ -179,13 +337,18 @@ async def programar_clases_pendientes(page, cantidad=2, sede="GUACARI", dias_des
         "total_encontradas": 0,
     }
     try:
-        if cantidad > len(HORARIOS_PERMITIDOS):
+        if horarios_objetivo is None:
+            horarios_objetivo = list(HORARIOS_PERMITIDOS[:cantidad])
+
+        if cantidad > len(horarios_objetivo):
             print(
-                f"La cantidad solicitada ({cantidad}) supera los horarios permitidos ({len(HORARIOS_PERMITIDOS)})."
+                f"La cantidad solicitada ({cantidad}) supera los horarios objetivo ({len(horarios_objetivo)})."
             )
+            screenshot = await tomar_screenshots(page, "error_cantidad_vs_horarios_objetivo")
             resultado["fallos"].append({
-                "motivo": "cantidad_supera_horarios_permitidos",
-                "detalle": f"Solicitadas={cantidad}, Permitidas={len(HORARIOS_PERMITIDOS)}",
+                "motivo": "cantidad_supera_horarios_objetivo",
+                "detalle": f"Solicitadas={cantidad}, HorariosObjetivo={len(horarios_objetivo)}",
+                "screenshot": screenshot,
             })
             return resultado
 
@@ -206,24 +369,44 @@ async def programar_clases_pendientes(page, cantidad=2, sede="GUACARI", dias_des
 
         if total_encontradas == 0:
             print("No hay clases para programar hoy.")
+            screenshot = await manejar_dia_sin_horarios(page, cerrar_popup=False)
             resultado["fallos"].append({
                 "motivo": "sin_clases_pendientes",
-                "detalle": "No se encontraron clases con el filtro actual.",
+                "detalle": "No se encontraron clases pendientes para el día objetivo.",
+                "screenshot": screenshot,
             })
             return resultado
 
-        # 3. Iteramos para programar la cantidad deseada (por defecto 2)
+        # 3. Iteramos para programar la cantidad deseada (por defecto 2).
+        # Usamos while + re-consulta del DOM en cada vuelta porque al programar una clase
+        # ésta desaparece de la lista "pendientes", desplazando los índices. Si usáramos
+        # for+índice fijo saltaríamos clases (ej: programaría CLASE 40, luego CLASE 42).
         programadas = 0
-        for i in range(total_encontradas):
-            if programadas >= cantidad:
+        clases_ya_intentadas = set()
+        while programadas < cantidad:
+            # Re-consultar la lista actualizada en cada iteración
+            clases_pendientes = frame.locator("span[id^='span_vPRONOMPRO']")
+            total_disponibles = await clases_pendientes.count()
+
+            # Buscar el primer elemento que sea una CLASE válida
+            clase_actual = None
+            nombre_clase = ""
+            for j in range(total_disponibles):
+                candidato = clases_pendientes.nth(j)
+                texto = (await candidato.inner_text()).strip()
+                if re.match(r'^CLASE\s+\d+', texto):
+                    if texto in clases_ya_intentadas:
+                        continue
+                    clase_actual = candidato
+                    nombre_clase = texto
+                    break
+                print(f"Saltando: {texto}")
+
+            if clase_actual is None:
+                print("No se encontraron más clases CLASE para programar.")
                 break
 
-            clase_actual = clases_pendientes.nth(i)
-            nombre_clase = await clase_actual.inner_text()
-
-            if not re.match(r'^CLASE\s+\d+', nombre_clase.strip()):
-                print(f"Saltando: {nombre_clase}")
-                continue
+            clases_ya_intentadas.add(nombre_clase)
 
             print(f"Programando automáticamente: {nombre_clase}")
             await clase_actual.click()
@@ -237,7 +420,7 @@ async def programar_clases_pendientes(page, cantidad=2, sede="GUACARI", dias_des
                 screenshot = await tomar_screenshots(page, f"6_sin_popup_clase_{programadas + 1}")
                 resultado["fallos"].append({
                     "clase": nombre_clase,
-                    "hora_objetivo": HORARIOS_PERMITIDOS[programadas],
+                    "hora_objetivo": horarios_objetivo[programadas],
                     "motivo": "sin_popup_tras_asignar",
                     "detalle": "No apareció el popup del sistema tras asignar.",
                     "screenshot": screenshot,
@@ -254,14 +437,14 @@ async def programar_clases_pendientes(page, cantidad=2, sede="GUACARI", dias_des
                 screenshot = await tomar_screenshots(page, "6_fuera_de_horario")
                 resultado["fallos"].append({
                     "clase": nombre_clase,
-                    "hora_objetivo": HORARIOS_PERMITIDOS[programadas],
+                    "hora_objetivo": horarios_objetivo[programadas],
                     "motivo": "fuera_de_horario_programacion",
                     "detalle": f"Popup recibido: {titulo_popup}",
                     "screenshot": screenshot,
                 })
                 return resultado
 
-            horario_objetivo = HORARIOS_PERMITIDOS[programadas]
+            horario_objetivo = horarios_objetivo[programadas]
             print(f"Horario objetivo para esta clase: {horario_objetivo}")
             seleccion = await seleccionar_horario_especifico(
                 page,
@@ -275,6 +458,7 @@ async def programar_clases_pendientes(page, cantidad=2, sede="GUACARI", dias_des
                     "hora_objetivo": horario_objetivo,
                     "motivo": seleccion.get("motivo", "error_seleccion_horario"),
                     "detalle": seleccion.get("detalle", "No fue posible seleccionar el horario."),
+                    "screenshot": seleccion.get("screenshot"),
                 })
                 return resultado
 
@@ -292,9 +476,11 @@ async def programar_clases_pendientes(page, cantidad=2, sede="GUACARI", dias_des
 
     except Exception as e:
         print(f"Error en la selección automática: {e}")
+        screenshot = await tomar_screenshots(page, "error_programar_clases_pendientes")
         resultado["fallos"].append({
             "motivo": "excepcion_programacion",
             "detalle": str(e),
+            "screenshot": screenshot,
         })
         return resultado
     
@@ -304,19 +490,35 @@ async def seleccionar_horario_especifico(page, sede="GUACARI", horario_objetivo=
     Maneja el popup de segundo nivel (gxp1_ifrm) para confirmar la sede, dia y hora.
     """
     try:
-        # Localizamos el iframe del segundo nivel
-        # #gxp1_b ya fue confirmado como visible y con iframe por el llamador.
         frame_lvl1 = page.frame_locator("#gxp1_ifrm")
 
-        # 1. Seleccionar la Sede
-        print(f"Seleccionando sede: {sede}")
-        # Usamos el selector parcial por si el ID de GeneXus cambia el prefijo
-        await frame_lvl1.locator("select[id$='vSEDEID']").select_option(label=sede)
+        # Esperamos a que el iframe cargue su contenido antes de interactuar
+        await frame_lvl1.locator("select").first.wait_for(state="visible", timeout=15000)
 
-        # 2. Seleccionar el día objetivo (mañana) cuando exista el combo de día.
+        # 1. Seleccionar la Sede (best-effort: si falla, continuamos)
+        print(f"Seleccionando sede: {sede}")
+        try:
+            sede_select = frame_lvl1.locator(
+                "select[id$='vSEDEID'], select[id*='SEDE'], select[name*='SEDE']"
+            )
+            if await sede_select.count() > 0:
+                await sede_select.first.select_option(label=sede)
+                await page.wait_for_timeout(1500)
+                print(f"Sede '{sede}' seleccionada.")
+            else:
+                print("No se encontró el selector de sede, continuando con la sede actual.")
+        except Exception as e:
+            print(f"No se pudo seleccionar sede (continuando con la actual): {e}")
+
+        # 2. Seleccionar el día objetivo (mañana).
+        # El dropdown muestra etiquetas con fecha completa, ej: "Viernes 15/05/26"
+        # por lo que incluimos ese formato como candidato principal.
+        # dia_seleccionado=True significa que el dropdown ya filtró por fecha,
+        # por lo que las filas solo contienen la hora (no la fecha).
+        dia_seleccionado = False
         dia_select = frame_lvl1.locator("select[id*='DIA'], select[name*='DIA']")
         if await dia_select.count() > 0:
-            fecha_objetivo = datetime.now() + timedelta(days=dias_desde_hoy)
+            fecha_objetivo = now_colombia() + timedelta(days=dias_desde_hoy)
             nombre_dia = {
                 0: "LUNES",
                 1: "MARTES",
@@ -326,33 +528,42 @@ async def seleccionar_horario_especifico(page, sede="GUACARI", horario_objetivo=
                 5: "SABADO",
                 6: "DOMINGO",
             }[fecha_objetivo.weekday()]
+            fecha_dd_mm_yy = fecha_objetivo.strftime("%d/%m/%y")
             candidatos = [
+                f"{nombre_dia.capitalize()} {fecha_dd_mm_yy}",  # "Viernes 15/05/26"
+                f"{nombre_dia} {fecha_dd_mm_yy}",               # "VIERNES 15/05/26"
                 nombre_dia,
                 nombre_dia.capitalize(),
                 nombre_dia[:3],
                 nombre_dia[:3].capitalize(),
             ]
-            seleccionado = False
             for opcion in candidatos:
                 try:
                     await dia_select.first.select_option(label=opcion)
                     print(f"Día seleccionado en combo: {opcion}")
-                    seleccionado = True
+                    dia_seleccionado = True
                     break
                 except Exception:
                     continue
-            if not seleccionado:
+            if dia_seleccionado:
+                await page.wait_for_timeout(2000)  # Esperar refresco AJAX tras cambio de día
+            else:
                 print("No se pudo seleccionar el día por label. Se continuará filtrando por filas.")
-        
-        # 3. Seleccionar una fila que coincida con la fecha objetivo y horario requerido.
+
+        # 3. Seleccionar una fila que coincida con el horario requerido.
+        # Si el dropdown de día ya filtró la fecha, solo se valida la hora.
+        # Si no se pudo seleccionar el día, se valida también la fecha en el texto de la fila.
         print(f"Buscando horario exacto: {horario_objetivo}")
         filas = frame_lvl1.locator("tr[id^='Grid1ContainerRow']")
         total_filas = await filas.count()
         if total_filas == 0:
+            print("Sin filas de horario disponibles: no hay clases programadas para ese día.")
+            screenshot = await manejar_dia_sin_horarios(page, cerrar_popup=True)
             return {
                 "ok": False,
-                "motivo": "sin_filas_horario",
-                "detalle": "No hay filas de horario disponibles en Grid1ContainerRow.",
+                "motivo": "sin_horarios_para_dia_objetivo",
+                "detalle": "No hay horarios disponibles para el día objetivo. La academia no tiene clases ese día.",
+                "screenshot": screenshot,
             }
 
         horario_norm = _normalizar_texto(horario_objetivo)
@@ -364,11 +575,14 @@ async def seleccionar_horario_especifico(page, sede="GUACARI", horario_objetivo=
             fila = filas.nth(idx)
             texto_fila = _normalizar_texto(await fila.inner_text())
             contiene_horario = horario_norm in texto_fila
-            contiene_fecha = any(p in texto_fila for p in patrones_fecha)
+            # Si el día ya fue seleccionado en el dropdown, la grilla ya filtró por fecha
+            # y las filas solo muestran horas → solo validamos la hora.
+            # Si no se seleccionó el día, validamos también que la fecha aparezca en la fila.
+            contiene_fecha = dia_seleccionado or any(p in texto_fila for p in patrones_fecha)
             if contiene_horario and contiene_fecha:
                 fila_objetivo = fila
                 fila_texto = texto_fila
-                print(f"Fila exacta encontrada (fecha+hora) en índice {idx}.")
+                print(f"Fila exacta encontrada (hora) en índice {idx}: {texto_fila}")
                 break
 
         if fila_objetivo is None:
@@ -391,19 +605,77 @@ async def seleccionar_horario_especifico(page, sede="GUACARI", horario_objetivo=
         # 4. Clic en el botón Confirmar
         await frame_lvl1.locator("input[id$='BTNCONFIRMAR'], input[value='Confirmar']").click()
         
-        # Esperamos a que el popup se cierre (GeneXus suele limpiar el DOM al terminar)
-        await page.wait_for_selector("#gxp1_b", state="hidden", timeout=5000)
-        return {
-            "ok": True,
-            "motivo": "ok",
-            "detalle": "Horario confirmado correctamente.",
-            "fila_texto": fila_texto,
-        }
+        # Verificar si el popup se cerró correctamente tras Confirmar
+        try:
+            await page.wait_for_selector("#gxp1_b", state="hidden", timeout=5000)
+            return {
+                "ok": True,
+                "motivo": "ok",
+                "detalle": "Horario confirmado correctamente.",
+                "fila_texto": fila_texto,
+            }
+        except Exception:
+            # Leer el mensaje de error antes de cerrar el popup
+            motivo_fallo = "popup_no_cerro_tras_confirmar"
+            detalle_fallo = "El popup seguía abierto después de hacer clic en Confirmar."
+            try:
+                warning = frame_lvl1.locator(".gx-warning-message")
+                if await warning.count() > 0:
+                    msg = (await warning.first.inner_text()).strip()
+                    if msg:
+                        detalle_fallo = msg
+                        if "fechas futuras" in msg.lower() or "clases anteriores programadas" in msg.lower():
+                            motivo_fallo = "clases_futuras_pendientes"
+                            print(f"Error del sistema: {msg}")
+            except Exception:
+                pass
+
+            print(f"El popup no se cerró tras Confirmar ({motivo_fallo}). Tomando evidencia...")
+            screenshot = await tomar_screenshots(page, f"confirmar_{motivo_fallo}")
+
+            # Cerrar el popup para no bloquear el resto del flujo
+            try:
+                await page.click("#gxp1_cls")
+                await page.wait_for_selector("#gxp1_b", state="hidden", timeout=3000)
+            except Exception:
+                pass
+
+            return {
+                "ok": False,
+                "motivo": motivo_fallo,
+                "detalle": detalle_fallo,
+                "screenshot": screenshot,
+            }
         
     except Exception as e:
         print(f"Error en la ventana de selección de horario: {e}")
+        screenshot = await tomar_screenshots(page, "error_seleccion_horario")
         return {
             "ok": False,
             "motivo": "excepcion_seleccion_horario",
             "detalle": str(e),
+            "screenshot": screenshot,
         }
+
+async def manejar_dia_sin_horarios(page, cerrar_popup=False):
+    """
+    Maneja el caso donde no hay horarios disponibles para programar.
+    Toma un pantallazo, informa que no hay horarios y opcionalmente cierra el popup.
+    Retorna la ruta del screenshot para incluirla en el informe.
+    """
+    print("No hay horarios disponibles para el día seleccionado.")
+
+    screenshot_path = await tomar_screenshots(page, "no_horarios_disponibles")
+    print(f"Evidencia guardada en: {screenshot_path}")
+
+    if cerrar_popup:
+        try:
+            cerrar_boton = page.locator("#gxp1_cls")
+            await cerrar_boton.wait_for(state="visible", timeout=3000)
+            await cerrar_boton.click()
+            await page.wait_for_selector("#gxp1_b", state="hidden", timeout=5000)
+            print("Popup cerrado exitosamente.")
+        except Exception as e:
+            print(f"No fue posible cerrar el popup: {e}")
+
+    return screenshot_path

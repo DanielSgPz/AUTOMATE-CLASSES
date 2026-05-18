@@ -82,7 +82,11 @@ https://api.telegram.org/bot<TU_TOKEN>/getUpdates
 
 El workflow está en `.github/workflows/automation.yml`.
 
-- `schedule`: diario a las 11:00 UTC (6:00 AM Colombia).
+- `schedule`: 11:00 UTC (6:00 AM Colombia), solo los días previos a clase.
+  - Domingo: programa clases del lunes.
+  - Lunes: programa clases del martes.
+  - Miércoles: programa clases del jueves.
+  - Jueves: programa clases del viernes.
 - `workflow_dispatch`: ejecución manual.
 
 ### Secrets requeridos en GitHub
@@ -100,6 +104,8 @@ Al finalizar la ejecución se envía:
 
 - Un resumen con estado, fechas, totales y detalle de fallos/programaciones.
 - Si hubo error con screenshot asociado, se envía la imagen como evidencia.
+- Si la ejecución se omite por calendario/festivo, también se envía screenshot de evidencia.
+- Si la programación fue exitosa, se envía el horario final del día objetivo.
 
 ## Seguridad
 

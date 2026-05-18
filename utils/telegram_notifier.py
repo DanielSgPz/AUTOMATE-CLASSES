@@ -77,6 +77,13 @@ def construir_resumen_telegram(reporte, inicio, fin):
     if motivo:
         lineas.extend(["", f"🧠 Motivo principal: {motivo}"])
 
+    if motivo == "horario_completo_para_dia_objetivo":
+        lineas.extend([
+            "",
+            "🗓️ El horario para el día objetivo ya estaba completo.",
+            "   No se programaron clases nuevas.",
+        ])
+
     if programadas:
         lineas.extend(["", "✅ Clases programadas"])
         lineas.extend(_resumen_linea_programada(item) for item in programadas)
@@ -169,7 +176,34 @@ def enviar_resumen_telegram(telegram_cfg, reporte, inicio, fin):
             caption="🖼️ Evidencia del error detectado",
         )
 
+    screenshot_omitido = reporte.get("screenshot_omitido")
+    if (
+        reporte.get("estado") == "omitido"
+        and screenshot_omitido
+        and os.path.exists(screenshot_omitido)
+    ):
+        enviar_foto_telegram(
+            telegram_cfg.bot_token,
+            telegram_cfg.chat_id,
+            screenshot_omitido,
+            caption="🗓️ Evidencia de omisión por calendario",
+        )
+
     enviado = enviar_mensaje_telegram(telegram_cfg.bot_token, telegram_cfg.chat_id, mensaje)
+
+    screenshot_horario_final = reporte.get("screenshot_horario_final")
+    if (
+        reporte.get("estado") == "exito"
+        and screenshot_horario_final
+        and os.path.exists(screenshot_horario_final)
+    ):
+        enviar_foto_telegram(
+            telegram_cfg.bot_token,
+            telegram_cfg.chat_id,
+            screenshot_horario_final,
+            caption="🗓️ Horario final del día objetivo",
+        )
+
     if enviado:
         print("Reporte enviado a Telegram correctamente.")
     else:
