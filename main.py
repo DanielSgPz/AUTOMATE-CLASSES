@@ -71,30 +71,42 @@ async def crear_evidencia_omitido(nombre_archivo, titulo, detalle):
 
 
 async def workflow_principal():
-    dias_anticipacion = 1
+    dias_a_procesar = [0, 1]
     inicio_ejecucion = now_colombia()
-    fecha_objetivo = (inicio_ejecucion + timedelta(days=dias_anticipacion)).strftime("%Y-%m-%d")
     telegram_cfg = load_telegram_config()
+
+    dias_validos = []
+    for d in dias_a_procesar:
+        evaluacion = evaluar_programacion_hoy(dias_anticipacion=d)
+        if evaluacion["ok"]:
+            dias_validos.append(d)
+
+    fechas_objetivo = [
+        (inicio_ejecucion + timedelta(days=d)).strftime("%Y-%m-%d")
+        for d in dias_validos
+    ]
     reporte = {
         "estado": "iniciado",
         "motivo": "",
-        "fecha_objetivo": fecha_objetivo,
+        "fecha_objetivo": ", ".join(fechas_objetivo) if fechas_objetivo else "(sin fecha)",
         "programadas": [],
         "fallos": [],
         "total_encontradas": 0,
+        "items_especiales": [],
+        "tiene_quiz_pendiente": False,
         "screenshot_horario_final": "",
         "screenshot_omitido": "",
     }
 
     try:
-        evaluacion = evaluar_programacion_hoy(dias_anticipacion=dias_anticipacion)
-        if not evaluacion["ok"]:
+        if not dias_validos:
             reporte["estado"] = "omitido"
-            reporte["motivo"] = evaluacion["motivo"]
+            evaluacion_cero = evaluar_programacion_hoy(dias_anticipacion=0)
+            reporte["motivo"] = evaluacion_cero.get("motivo", "sin_dias_validos")
             reporte["screenshot_omitido"] = await crear_evidencia_omitido(
                 nombre_archivo="0_omitido_por_calendario",
                 titulo="Ejecucion omitida por reglas de calendario",
-                detalle=evaluacion["detalle"],
+                detalle=evaluacion_cero.get("detalle", "Ningún día de los procesados es válido para programar."),
             )
             return
 
@@ -144,89 +156,109 @@ async def workflow_principal():
 
             await tomar_screenshots(page, "4_navegar_programacion_iniciado")
 
-            # --- PASO 4: VALIDAR HORARIO DEL DÍA OBJETIVO ---
-            validacion_horario = await validar_horario_dia_objetivo(
-                page,
-                dias_desde_hoy=dias_anticipacion,
-                nombre_screenshot="5_horario_objetivo_antes",
-            )
+            # --- PASO 4: ITERAR SOBRE DÍAS VÁLIDOS ---
+            for idx, dias_anticipacion in enumerate(dias_validos):
+                fecha_objetivo = (inicio_ejecucion + timedelta(days=dias_anticipacion)).strftime("%Y-%m-%d")
+                print(f"\n--- Procesando día objetivo: {fecha_objetivo} (anticipación={dias_anticipacion}) ---")
 
-            if not validacion_horario.get("ok"):
-                reporte["estado"] = "error"
-                reporte["motivo"] = validacion_horario.get("motivo", "error_validar_horario_dia_objetivo")
-                reporte["fallos"].append({
-                    "motivo": validacion_horario.get("motivo", "error_validar_horario_dia_objetivo"),
-                    "detalle": validacion_horario.get("detalle", "Falló la validación del horario del día objetivo."),
-                    "screenshot": validacion_horario.get("screenshot"),
-                })
-                return
-
-            horarios_faltantes = validacion_horario.get("horarios_faltantes", [])
-            cantidad_a_programar = validacion_horario.get("cantidad_a_programar", 0)
-
-            if cantidad_a_programar == 0:
-                print("No hay franjas faltantes para el día objetivo. No se programarán clases.")
-                reporte["estado"] = "exito"
-                reporte["motivo"] = "horario_completo_para_dia_objetivo"
-                reporte["screenshot_horario_final"] = validacion_horario.get("screenshot", "")
-                return
-
-            # --- PASO 5: ENTRAR A PROGRAMAR CLASES ---
-            iniciar_modulo_programacion = await iniciar_programacion_clases(page)
-
-            if not iniciar_modulo_programacion:
-                print("No se pudo iniciar la programación.")
-                screenshot = await tomar_screenshots(page, "5_error_iniciar_modulo_programacion")
-                reporte["estado"] = "error"
-                reporte["motivo"] = "no_fue_posible_iniciar_modulo_programacion"
-                reporte["fallos"].append({
-                    "motivo": "no_fue_posible_iniciar_modulo_programacion",
-                    "detalle": "Falló la entrada al flujo de programación de clases.",
-                    "screenshot": screenshot,
-                })
-                return
-
-            print("Flujo de programación iniciado correctamente.")
-            await tomar_screenshots(page, "5_modulo_seleccion_clase")
-
-            resultado_programacion = await programar_clases_pendientes(
-                page,
-                cantidad=cantidad_a_programar,
-                sede="GUACARI",
-                dias_desde_hoy=dias_anticipacion,
-                horarios_objetivo=horarios_faltantes,
-            )
-
-            reporte["programadas"] = resultado_programacion.get("programadas", [])
-            reporte["fallos"] = resultado_programacion.get("fallos", [])
-            reporte["total_encontradas"] = resultado_programacion.get("total_encontradas", 0)
-
-            if resultado_programacion.get("ok"):
-                reporte["estado"] = "exito"
-                reporte["motivo"] = "programacion_completada"
-                print("Clases programadas exitosamente.")
-                await tomar_screenshots(page, "6_clases_programadas")
-
-                # Cerrar el popup de programación (#gxp0_b) antes de abrir la ventana de Horario.
-                # Si sigue abierto, su iframe bloquea el clic en #BUTTON2.
-                await cerrar_anuncio_inicial(page, "#gxp0_cls")
-
-                # Captura final del horario ya actualizado para adjuntar al informe.
-                validacion_horario_final = await validar_horario_dia_objetivo(
+                validacion_horario = await validar_horario_dia_objetivo(
                     page,
                     dias_desde_hoy=dias_anticipacion,
-                    nombre_screenshot="7_horario_objetivo_final",
+                    nombre_screenshot=f"5_horario_dia_{dias_anticipacion}_antes",
                 )
-                if validacion_horario_final.get("ok"):
-                    reporte["screenshot_horario_final"] = validacion_horario_final.get("screenshot", "")
-            elif reporte["programadas"]:
+
+                if not validacion_horario.get("ok"):
+                    print(f"Error validando horario para {fecha_objetivo}: {validacion_horario.get('motivo')}")
+                    reporte["fallos"].append({
+                        "fecha": fecha_objetivo,
+                        "motivo": validacion_horario.get("motivo", "error_validar_horario_dia_objetivo"),
+                        "detalle": validacion_horario.get("detalle", "Falló la validación del horario."),
+                        "screenshot": validacion_horario.get("screenshot"),
+                    })
+                    continue
+
+                horarios_faltantes = validacion_horario.get("horarios_faltantes", [])
+                cantidad_a_programar = validacion_horario.get("cantidad_a_programar", 0)
+
+                if cantidad_a_programar == 0:
+                    print(f"No hay franjas faltantes para {fecha_objetivo}. Día completo, saltando.")
+                    continue
+
+                # --- ENTRAR A PROGRAMAR CLASES ---
+                iniciar_modulo_programacion = await iniciar_programacion_clases(page)
+
+                if not iniciar_modulo_programacion:
+                    print(f"No se pudo iniciar la programación para {fecha_objetivo}.")
+                    screenshot = await tomar_screenshots(page, f"5_error_iniciar_modulo_dia_{dias_anticipacion}")
+                    reporte["fallos"].append({
+                        "fecha": fecha_objetivo,
+                        "motivo": "no_fue_posible_iniciar_modulo_programacion",
+                        "detalle": "Falló la entrada al flujo de programación de clases.",
+                        "screenshot": screenshot,
+                    })
+                    continue
+
+                print(f"Flujo de programación iniciado para {fecha_objetivo}.")
+                await tomar_screenshots(page, f"5_modulo_seleccion_clase_dia_{dias_anticipacion}")
+
+                resultado_programacion = await programar_clases_pendientes(
+                    page,
+                    cantidad=cantidad_a_programar,
+                    sede="GUACARI",
+                    dias_desde_hoy=dias_anticipacion,
+                    horarios_objetivo=horarios_faltantes,
+                )
+
+                reporte["programadas"].extend(resultado_programacion.get("programadas", []))
+                reporte["fallos"].extend(resultado_programacion.get("fallos", []))
+                reporte["total_encontradas"] += resultado_programacion.get("total_encontradas", 0)
+
+                items_especiales = resultado_programacion.get("items_especiales", [])
+                if items_especiales:
+                    reporte["items_especiales"].extend(items_especiales)
+                    for item in items_especiales:
+                        print(f"  [{item['tipo']}] {item['nombre']} — no programable automáticamente")
+
+                if resultado_programacion.get("tiene_quiz_pendiente"):
+                    reporte["tiene_quiz_pendiente"] = True
+                    await cerrar_anuncio_inicial(page, "#gxp0_cls")
+                    continue
+
+                # Cerrar popup de programación antes del siguiente día
+                await cerrar_anuncio_inicial(page, "#gxp0_cls")
+
+                # Captura final del horario para el último día procesado
+                if resultado_programacion.get("programadas"):
+                    await tomar_screenshots(page, f"6_clases_programadas_dia_{dias_anticipacion}")
+                    if idx == len(dias_validos) - 1:
+                        validacion_horario_final = await validar_horario_dia_objetivo(
+                            page,
+                            dias_desde_hoy=dias_anticipacion,
+                            nombre_screenshot=f"7_horario_final_dia_{dias_anticipacion}",
+                        )
+                        if validacion_horario_final.get("ok"):
+                            reporte["screenshot_horario_final"] = validacion_horario_final.get("screenshot", "")
+
+            if reporte["fallos"] and not reporte["programadas"]:
+                reporte["estado"] = "error"
+                reporte["motivo"] = reporte["fallos"][0]["motivo"]
+            elif reporte["fallos"] and reporte["programadas"]:
                 reporte["estado"] = "parcial"
                 reporte["motivo"] = "programacion_parcial"
+            elif not reporte["fallos"] and not reporte["programadas"]:
+                reporte["estado"] = "exito"
+                reporte["motivo"] = "horario_completo_para_dias_objetivo"
+                if dias_validos:
+                    ultima_validacion = await validar_horario_dia_objetivo(
+                        page,
+                        dias_desde_hoy=dias_validos[-1],
+                        nombre_screenshot="7_horario_completo",
+                    )
+                    if ultima_validacion.get("ok"):
+                        reporte["screenshot_horario_final"] = ultima_validacion.get("screenshot", "")
             else:
-                reporte["estado"] = "error"
-                reporte["motivo"] = (
-                    reporte["fallos"][0]["motivo"] if reporte["fallos"] else "sin_programaciones"
-                )
+                reporte["estado"] = "exito"
+                reporte["motivo"] = "programacion_completada"
     except Exception as e:
         reporte["estado"] = "error"
         reporte["motivo"] = "excepcion_no_controlada"

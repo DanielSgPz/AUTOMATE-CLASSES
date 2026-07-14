@@ -6,6 +6,27 @@ from utils.timezone import now_colombia
 
 HORARIOS_PERMITIDOS = ["18:00 19:30", "19:30 21:00"]
 
+PATRON_QUIZ = re.compile(r'^QUIZ', re.IGNORECASE)
+PATRON_PREP_EXAMEN = re.compile(r'^(PREPARACIÓN|PREPARACION)\s+EXAMEN\s+FINAL', re.IGNORECASE)
+PATRON_EXAMEN_FINAL = re.compile(r'^EXAMEN\s+FINAL', re.IGNORECASE)
+PATRON_SMART_ZONE = re.compile(r'^SMART\s+ZONE', re.IGNORECASE)
+PATRON_CLASE = re.compile(r'^CLASE\s+\d+')
+
+
+def _clasificar_item_pendiente(texto):
+    texto_norm = texto.strip().upper()
+    if PATRON_QUIZ.match(texto_norm):
+        return "quiz"
+    if PATRON_PREP_EXAMEN.match(texto_norm):
+        return "preparacion_examen_final"
+    if PATRON_EXAMEN_FINAL.match(texto_norm):
+        return "examen_final"
+    if PATRON_SMART_ZONE.match(texto_norm):
+        return "smart_zone"
+    if PATRON_CLASE.match(texto_norm):
+        return "clase"
+    return "otro"
+
 
 def _normalizar_texto(texto):
     return re.sub(r"\s+", " ", texto).strip().upper()
@@ -335,6 +356,8 @@ async def programar_clases_pendientes(page, cantidad=2, sede="GUACARI", dias_des
         "programadas": [],
         "fallos": [],
         "total_encontradas": 0,
+        "items_especiales": [],
+        "tiene_quiz_pendiente": False,
     }
     try:
         if horarios_objetivo is None:
@@ -359,48 +382,76 @@ async def programar_clases_pendientes(page, cantidad=2, sede="GUACARI", dias_des
         await dropdown.select_option("2")
         await page.wait_for_timeout(2000) # Esperamos el refresco AJAX
 
-        # 2. Obtenemos todos los elementos que contienen el texto "CLASE"
-        # Usamos un selector CSS que busque los spans cuyo ID empiece por span_vPRONOMPRO
-        clases_pendientes = frame.locator("span[id^='span_vPRONOMPRO']")
-        
-        total_encontradas = await clases_pendientes.count()
-        resultado["total_encontradas"] = total_encontradas
-        print(f"Se encontraron {total_encontradas} clases pendientes.")
+        # 2. Primer pase: clasificar todos los items pendientes
+        todos_items = frame.locator("span[id^='span_vPRONOMPRO']")
+        total_items = await todos_items.count()
+        resultado["total_encontradas"] = total_items
+        print(f"Se encontraron {total_items} items pendientes.")
 
-        if total_encontradas == 0:
-            print("No hay clases para programar hoy.")
-            screenshot = await manejar_dia_sin_horarios(page, cerrar_popup=False)
+        items_clase = []
+        items_especiales = []
+        for j in range(total_items):
+            texto = (await todos_items.nth(j).inner_text()).strip()
+            tipo = _clasificar_item_pendiente(texto)
+            if tipo == "clase":
+                items_clase.append(texto)
+            elif tipo != "otro":
+                items_especiales.append({"tipo": tipo, "nombre": texto})
+                print(f"Item especial detectado: [{tipo}] {texto}")
+
+        resultado["items_especiales"] = items_especiales
+
+        # Si hay QUIZ pendiente, la plataforma no deja programar nada
+        if any(i["tipo"] == "quiz" for i in items_especiales):
+            print("QUIZ PENDIENTE: No se pueden programar clases hasta completar el quiz.")
+            resultado["tiene_quiz_pendiente"] = True
+            screenshot = await tomar_screenshots(page, "quiz_pendiente")
             resultado["fallos"].append({
-                "motivo": "sin_clases_pendientes",
-                "detalle": "No se encontraron clases pendientes para el día objetivo.",
+                "motivo": "quiz_pendiente_bloquea_programacion",
+                "detalle": f"Quiz pendiente: {items_especiales[0]['nombre']}. Complete el quiz antes de programar.",
                 "screenshot": screenshot,
             })
             return resultado
 
-        # 3. Iteramos para programar la cantidad deseada (por defecto 2).
+        if not items_clase:
+            if items_especiales:
+                print("Solo hay items especiales pendientes (no CLASEs). No se programa nada.")
+                screenshot = await manejar_dia_sin_horarios(page, cerrar_popup=False)
+                resultado["fallos"].append({
+                    "motivo": "sin_clases_solo_especiales",
+                    "detalle": f"Solo se encontraron: {[i['nombre'] for i in items_especiales]}",
+                    "screenshot": screenshot,
+                })
+            else:
+                print("No hay clases para programar hoy.")
+                screenshot = await manejar_dia_sin_horarios(page, cerrar_popup=False)
+                resultado["fallos"].append({
+                    "motivo": "sin_clases_pendientes",
+                    "detalle": "No se encontraron clases pendientes para el día objetivo.",
+                    "screenshot": screenshot,
+                })
+            return resultado
+
+        # 3. Iteramos para programar la cantidad deseada.
         # Usamos while + re-consulta del DOM en cada vuelta porque al programar una clase
-        # ésta desaparece de la lista "pendientes", desplazando los índices. Si usáramos
-        # for+índice fijo saltaríamos clases (ej: programaría CLASE 40, luego CLASE 42).
+        # ésta desaparece de la lista "pendientes", desplazando los índices.
         programadas = 0
         clases_ya_intentadas = set()
         while programadas < cantidad:
-            # Re-consultar la lista actualizada en cada iteración
             clases_pendientes = frame.locator("span[id^='span_vPRONOMPRO']")
             total_disponibles = await clases_pendientes.count()
 
-            # Buscar el primer elemento que sea una CLASE válida
             clase_actual = None
             nombre_clase = ""
             for j in range(total_disponibles):
                 candidato = clases_pendientes.nth(j)
                 texto = (await candidato.inner_text()).strip()
-                if re.match(r'^CLASE\s+\d+', texto):
+                if PATRON_CLASE.match(texto):
                     if texto in clases_ya_intentadas:
                         continue
                     clase_actual = candidato
                     nombre_clase = texto
                     break
-                print(f"Saltando: {texto}")
 
             if clase_actual is None:
                 print("No se encontraron más clases CLASE para programar.")

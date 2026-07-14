@@ -77,12 +77,38 @@ def construir_resumen_telegram(reporte, inicio, fin):
     if motivo:
         lineas.extend(["", f"🧠 Motivo principal: {motivo}"])
 
-    if motivo == "horario_completo_para_dia_objetivo":
+    if motivo in ("horario_completo_para_dia_objetivo", "horario_completo_para_dias_objetivo"):
         lineas.extend([
             "",
-            "🗓️ El horario para el día objetivo ya estaba completo.",
+            f"🗓️ Horario completo para {'la' if ',' not in fecha_objetivo else 'las'} fecha{'s' if ',' in fecha_objetivo else ''} objetivo{'s' if ',' in fecha_objetivo else ''}: {fecha_objetivo}",
             "   No se programaron clases nuevas.",
         ])
+
+    items_especiales = reporte.get("items_especiales", [])
+    tiene_quiz = reporte.get("tiene_quiz_pendiente", False)
+
+    if tiene_quiz:
+        lineas.extend([
+            "",
+            "🧪 Quiz(ces) pendiente(s) — Bloquean programación:",
+        ])
+        for item in items_especiales:
+            if item["tipo"] == "quiz":
+                lineas.append(f"   ⏳ {item['nombre']}")
+        lineas.append("")
+        lineas.append("🚫 No se pueden programar clases hasta completar el quiz.")
+
+    otros_especiales = [i for i in items_especiales if i["tipo"] != "quiz"]
+    if otros_especiales:
+        lineas.extend(["", "📋 Items pendientes (no programables automáticamente):"])
+        ETIQUETAS = {
+            "preparacion_examen_final": "📝 Preparación examen final",
+            "examen_final": "📝 Examen final",
+            "smart_zone": "🎯 Smart Zone",
+        }
+        for item in otros_especiales:
+            etiqueta = ETIQUETAS.get(item["tipo"], item["tipo"])
+            lineas.append(f"   📌 {etiqueta}: {item['nombre']}")
 
     if programadas:
         lineas.extend(["", "✅ Clases programadas"])
