@@ -93,7 +93,8 @@ async def workflow_principal():
         "fallos": [],
         "total_encontradas": 0,
         "items_especiales": [],
-        "tiene_quiz_pendiente": False,
+        "avisos": [],
+        "dias_con_clases_programadas": [],
         "screenshot_horario_final": "",
         "screenshot_omitido": "",
     }
@@ -179,6 +180,18 @@ async def workflow_principal():
 
                 horarios_faltantes = validacion_horario.get("horarios_faltantes", [])
                 cantidad_a_programar = validacion_horario.get("cantidad_a_programar", 0)
+                horarios_ocupados = validacion_horario.get("horarios_ocupados", [])
+
+                if horarios_ocupados:
+                    print(
+                        f"{fecha_objetivo} ya tiene clases en {', '.join(horarios_ocupados)}. "
+                        "No se programa parcialmente este día."
+                    )
+                    reporte["dias_con_clases_programadas"].append({
+                        "fecha": fecha_objetivo,
+                        "horarios": horarios_ocupados,
+                    })
+                    continue
 
                 if cantidad_a_programar == 0:
                     print(f"No hay franjas faltantes para {fecha_objetivo}. Día completo, saltando.")
@@ -211,6 +224,7 @@ async def workflow_principal():
 
                 reporte["programadas"].extend(resultado_programacion.get("programadas", []))
                 reporte["fallos"].extend(resultado_programacion.get("fallos", []))
+                reporte["avisos"].extend(resultado_programacion.get("avisos", []))
                 reporte["total_encontradas"] += resultado_programacion.get("total_encontradas", 0)
 
                 items_especiales = resultado_programacion.get("items_especiales", [])
@@ -218,11 +232,6 @@ async def workflow_principal():
                     reporte["items_especiales"].extend(items_especiales)
                     for item in items_especiales:
                         print(f"  [{item['tipo']}] {item['nombre']} — no programable automáticamente")
-
-                if resultado_programacion.get("tiene_quiz_pendiente"):
-                    reporte["tiene_quiz_pendiente"] = True
-                    await cerrar_anuncio_inicial(page, "#gxp0_cls")
-                    continue
 
                 # Cerrar popup de programación antes del siguiente día
                 await cerrar_anuncio_inicial(page, "#gxp0_cls")
@@ -247,8 +256,12 @@ async def workflow_principal():
                 reporte["motivo"] = "programacion_parcial"
             elif not reporte["fallos"] and not reporte["programadas"]:
                 reporte["estado"] = "exito"
-                reporte["motivo"] = "horario_completo_para_dias_objetivo"
-                if dias_validos:
+                reporte["motivo"] = (
+                    "sin_clases_programables" if reporte["avisos"]
+                    else "dias_con_clases_programadas" if reporte["dias_con_clases_programadas"]
+                    else "horario_completo_para_dias_objetivo"
+                )
+                if dias_validos and not reporte["avisos"] and not reporte["dias_con_clases_programadas"]:
                     ultima_validacion = await validar_horario_dia_objetivo(
                         page,
                         dias_desde_hoy=dias_validos[-1],

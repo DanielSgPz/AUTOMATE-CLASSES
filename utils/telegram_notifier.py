@@ -84,29 +84,28 @@ def construir_resumen_telegram(reporte, inicio, fin):
             "   No se programaron clases nuevas.",
         ])
 
+    if motivo == "sin_clases_programables":
+        tipos_bloqueantes = {"quiz", "preparacion_examen_final", "examen_final"}
+        if any(item["tipo"] in tipos_bloqueantes for item in reporte.get("items_especiales", [])):
+            lineas.extend(["", "ℹ️ No se matricularon CLASEs: complete primero el quiz o examen pendiente."])
+        else:
+            lineas.extend(["", "ℹ️ No se matricularon CLASEs: SMART ZONE sigue inactiva."])
+
+    if motivo == "dias_con_clases_programadas":
+        lineas.extend(["", "ℹ️ No se matricularon clases en días con franjas ya ocupadas:"])
+        for dia in reporte.get("dias_con_clases_programadas", []):
+            lineas.append(f"   📅 {dia['fecha']}: {', '.join(dia['horarios'])}")
+
     items_especiales = reporte.get("items_especiales", [])
-    tiene_quiz = reporte.get("tiene_quiz_pendiente", False)
-
-    if tiene_quiz:
-        lineas.extend([
-            "",
-            "🧪 Quiz(ces) pendiente(s) — Bloquean programación:",
-        ])
-        for item in items_especiales:
-            if item["tipo"] == "quiz":
-                lineas.append(f"   ⏳ {item['nombre']}")
-        lineas.append("")
-        lineas.append("🚫 No se pueden programar clases hasta completar el quiz.")
-
-    otros_especiales = [i for i in items_especiales if i["tipo"] != "quiz"]
-    if otros_especiales:
+    if items_especiales:
         lineas.extend(["", "📋 Items pendientes (no programables automáticamente):"])
         ETIQUETAS = {
+            "quiz": "🧪 Quiz",
             "preparacion_examen_final": "📝 Preparación examen final",
             "examen_final": "📝 Examen final",
             "smart_zone": "🎯 Smart Zone",
         }
-        for item in otros_especiales:
+        for item in items_especiales:
             etiqueta = ETIQUETAS.get(item["tipo"], item["tipo"])
             lineas.append(f"   📌 {etiqueta}: {item['nombre']}")
 

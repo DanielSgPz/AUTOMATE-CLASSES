@@ -28,6 +28,27 @@ def _clasificar_item_pendiente(texto):
     return "otro"
 
 
+def _separar_items_pendientes(textos):
+    clases = []
+    especiales = []
+    for texto in textos:
+        tipo = _clasificar_item_pendiente(texto)
+        if tipo == "clase":
+            clases.append(texto)
+        elif tipo != "otro":
+            especiales.append({"tipo": tipo, "nombre": texto})
+    return clases, especiales
+
+
+def _motivo_error_programacion(mensaje):
+    mensaje = _normalizar_texto(mensaje)
+    if "CUPO" in mensaje or "DISPONIB" in mensaje:
+        return "sin_cupo"
+    if "FECHAS FUTURAS" in mensaje or "CLASES ANTERIORES PROGRAMADAS" in mensaje:
+        return "clases_futuras_pendientes"
+    return "popup_no_cerro_tras_confirmar"
+
+
 def _normalizar_texto(texto):
     return re.sub(r"\s+", " ", texto).strip().upper()
 
@@ -357,7 +378,7 @@ async def programar_clases_pendientes(page, cantidad=2, sede="GUACARI", dias_des
         "fallos": [],
         "total_encontradas": 0,
         "items_especiales": [],
-        "tiene_quiz_pendiente": False,
+        "avisos": [],
     }
     try:
         if horarios_objetivo is None:
@@ -388,39 +409,23 @@ async def programar_clases_pendientes(page, cantidad=2, sede="GUACARI", dias_des
         resultado["total_encontradas"] = total_items
         print(f"Se encontraron {total_items} items pendientes.")
 
-        items_clase = []
-        items_especiales = []
+        textos_pendientes = []
         for j in range(total_items):
             texto = (await todos_items.nth(j).inner_text()).strip()
-            tipo = _clasificar_item_pendiente(texto)
-            if tipo == "clase":
-                items_clase.append(texto)
-            elif tipo != "otro":
-                items_especiales.append({"tipo": tipo, "nombre": texto})
-                print(f"Item especial detectado: [{tipo}] {texto}")
+            textos_pendientes.append(texto)
+
+        items_clase, items_especiales = _separar_items_pendientes(textos_pendientes)
+        for item in items_especiales:
+            print(f"Item especial detectado: [{item['tipo']}] {item['nombre']}")
 
         resultado["items_especiales"] = items_especiales
 
-        # Si hay QUIZ pendiente, la plataforma no deja programar nada
-        if any(i["tipo"] == "quiz" for i in items_especiales):
-            print("QUIZ PENDIENTE: No se pueden programar clases hasta completar el quiz.")
-            resultado["tiene_quiz_pendiente"] = True
-            screenshot = await tomar_screenshots(page, "quiz_pendiente")
-            resultado["fallos"].append({
-                "motivo": "quiz_pendiente_bloquea_programacion",
-                "detalle": f"Quiz pendiente: {items_especiales[0]['nombre']}. Complete el quiz antes de programar.",
-                "screenshot": screenshot,
-            })
-            return resultado
-
         if not items_clase:
             if items_especiales:
-                print("Solo hay items especiales pendientes (no CLASEs). No se programa nada.")
-                screenshot = await manejar_dia_sin_horarios(page, cerrar_popup=False)
-                resultado["fallos"].append({
-                    "motivo": "sin_clases_solo_especiales",
-                    "detalle": f"Solo se encontraron: {[i['nombre'] for i in items_especiales]}",
-                    "screenshot": screenshot,
+                print("No hay CLASEs pendientes; solo hay items especiales.")
+                resultado["avisos"].append({
+                    "motivo": "sin_clases_programables",
+                    "detalle": "No se matricularon CLASEs porque solo hay quiz, examen o Smart Zone pendientes.",
                 })
             else:
                 print("No hay clases para programar hoy.")
@@ -461,6 +466,10 @@ async def programar_clases_pendientes(page, cantidad=2, sede="GUACARI", dias_des
 
             print(f"Programando automáticamente: {nombre_clase}")
             await clase_actual.click()
+            await tomar_screenshots(
+                page,
+                f"6_clase_seleccionada_dia_{dias_desde_hoy}_{nombre_clase.replace(' ', '_').lower()}",
+            )
             await frame.locator("#BUTTON1").dispatch_event("click")
 
             # Esperamos a que aparezca el popup de respuesta del sistema.
@@ -503,6 +512,7 @@ async def programar_clases_pendientes(page, cantidad=2, sede="GUACARI", dias_des
                 horario_objetivo=horario_objetivo,
                 dias_desde_hoy=dias_desde_hoy,
             )
+
             if not seleccion["ok"]:
                 resultado["fallos"].append({
                     "clase": nombre_clase,
@@ -666,25 +676,22 @@ async def seleccionar_horario_especifico(page, sede="GUACARI", horario_objetivo=
                 "fila_texto": fila_texto,
             }
         except Exception:
-            # Leer el mensaje de error antes de cerrar el popup
+            # Leer el mensaje de error antes de decidir si se intenta otra franja.
             motivo_fallo = "popup_no_cerro_tras_confirmar"
             detalle_fallo = "El popup seguía abierto después de hacer clic en Confirmar."
             try:
-                warning = frame_lvl1.locator(".gx-warning-message")
-                if await warning.count() > 0:
-                    msg = (await warning.first.inner_text()).strip()
-                    if msg:
-                        detalle_fallo = msg
-                        if "fechas futuras" in msg.lower() or "clases anteriores programadas" in msg.lower():
-                            motivo_fallo = "clases_futuras_pendientes"
-                            print(f"Error del sistema: {msg}")
+                msg = (await frame_lvl1.locator("body").inner_text()).strip()
+                if msg:
+                    detalle_fallo = msg
+                    motivo_fallo = _motivo_error_programacion(msg)
+                    print(f"Error del sistema: {msg}")
             except Exception:
                 pass
 
             print(f"El popup no se cerró tras Confirmar ({motivo_fallo}). Tomando evidencia...")
             screenshot = await tomar_screenshots(page, f"confirmar_{motivo_fallo}")
 
-            # Cerrar el popup para no bloquear el resto del flujo
+            # Cerrar el popup para no bloquear el siguiente día.
             try:
                 await page.click("#gxp1_cls")
                 await page.wait_for_selector("#gxp1_b", state="hidden", timeout=3000)

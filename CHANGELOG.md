@@ -13,10 +13,13 @@ Cuando el sistema entra al módulo de programación y filtra por "Pendientes por
 | Tipo | Patrón | Comportamiento |
 |------|--------|----------------|
 | `CLASE` | `^CLASE \d+` | Se programa automáticamente |
-| `QUIZ` | `^QUIZ` | **Bloquea** toda programación. Se notifica: "No se pueden programar clases hasta completar el quiz." |
+| `QUIZ` | `^QUIZ` | Se informa y se omite; no bloquea las `CLASE` pendientes. |
 | `PREPARACIÓN EXAMEN FINAL` | `^(PREPARACIÓN\|PREPARACION) EXAMEN FINAL` | Se notifica, no se programa |
 | `EXAMEN FINAL` | `^EXAMEN FINAL` | Se notifica, no se programa |
 | `SMART ZONE` | `^SMART ZONE` | Se notifica, no se programa. **Listo para habilitar programación automática** cuando se den las reglas. |
+
+Si no hay cupo en la primera franja requerida, se omite ese día para evitar matrículas parciales y se continúa con el siguiente día válido.
+Si una franja habitual ya tiene una clase programada, se omite todo ese día para no matricular una sola clase.
 
 ## Pendiente: SMART ZONE
 
