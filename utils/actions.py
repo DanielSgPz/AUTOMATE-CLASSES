@@ -49,6 +49,17 @@ def _motivo_error_programacion(mensaje):
     return "popup_no_cerro_tras_confirmar"
 
 
+def _detalle_error_programacion(mensaje):
+    for patron in (
+        r"(Te invitamos a validar disponibilidad.*?día\.)",
+        r"(La clase no puede ser programada.*?fechas futuras\.)",
+    ):
+        coincidencia = re.search(patron, mensaje, re.IGNORECASE | re.DOTALL)
+        if coincidencia:
+            return re.sub(r"\s+", " ", coincidencia.group(1)).strip()
+    return "El popup seguía abierto después de confirmar."
+
+
 def _normalizar_texto(texto):
     return re.sub(r"\s+", " ", texto).strip().upper()
 
@@ -682,9 +693,9 @@ async def seleccionar_horario_especifico(page, sede="GUACARI", horario_objetivo=
             try:
                 msg = (await frame_lvl1.locator("body").inner_text()).strip()
                 if msg:
-                    detalle_fallo = msg
                     motivo_fallo = _motivo_error_programacion(msg)
-                    print(f"Error del sistema: {msg}")
+                    detalle_fallo = _detalle_error_programacion(msg)
+                    print(f"Error del sistema: {detalle_fallo}")
             except Exception:
                 pass
 

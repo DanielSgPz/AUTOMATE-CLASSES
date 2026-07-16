@@ -1,6 +1,6 @@
 import unittest
 
-from utils.actions import _motivo_error_programacion, _separar_items_pendientes
+from utils.actions import _detalle_error_programacion, _motivo_error_programacion, _separar_items_pendientes
 
 
 class PendientesTest(unittest.TestCase):
@@ -24,6 +24,16 @@ class PendientesTest(unittest.TestCase):
             _motivo_error_programacion("No hay cupos disponibles para este horario."),
             "sin_cupo",
         )
+
+    def test_omite_las_sedes_del_detalle_de_cupo(self):
+        detalle = _detalle_error_programacion(
+            "Sede:\nGUACARI\nCENTRO\n\nTe invitamos a validar disponibilidad en otras "
+            "franjas horarias o sedes cercanas. Recuerda que puedes ingresar continuamente "
+            "y revisar los cupos que se liberan en el transcurso del día.\n\nClase Nro."
+        )
+
+        self.assertNotIn("GUACARI", detalle)
+        self.assertIn("validar disponibilidad", detalle)
 
 
 if __name__ == "__main__":
