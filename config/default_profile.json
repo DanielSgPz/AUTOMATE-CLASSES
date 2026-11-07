@@ -1,0 +1,118 @@
+{
+  "name": "default",
+  "study_plan": "INGA1C1",
+  "target_day_offset": 1,
+  "target_day_offsets": [
+    1
+  ],
+  "horizon_days": 1,
+  "partial_occupancy_policy": "skip_entire_day",
+  "priorities": [
+    "class",
+    "quiz_unit",
+    "smart_zone",
+    "final_exam",
+    "final_exam_preparation"
+  ],
+  "stop_on_error": true,
+  "rules": {
+    "class": {
+      "enabled": true,
+      "location": "GUACARI",
+      "allowed_weekdays": [
+        0,
+        1,
+        3,
+        4
+      ],
+      "preferred_slots": [
+        "18:00 19:30",
+        "19:30 21:00"
+      ],
+      "max_per_day": 2
+    },
+    "smart_zone": {
+      "enabled": false,
+      "location": "GUACARI",
+      "allowed_weekdays": [
+        0,
+        1,
+        3,
+        4
+      ],
+      "preferred_slots": [],
+      "max_per_day": 1
+    },
+    "quiz_unit": {
+      "enabled": false,
+      "location": "GUACARI",
+      "allowed_weekdays": [
+        0,
+        1,
+        3,
+        4
+      ],
+      "preferred_slots": [],
+      "max_per_day": 1
+    },
+    "final_exam": {
+      "enabled": false,
+      "location": "GUACARI",
+      "allowed_weekdays": [
+        0,
+        1,
+        3,
+        4
+      ],
+      "preferred_slots": [],
+      "max_per_day": 1
+    },
+    "final_exam_preparation": {
+      "enabled": false,
+      "location": "GUACARI",
+      "allowed_weekdays": [
+        0,
+        1,
+        3,
+        4
+      ],
+      "preferred_slots": [],
+      "max_per_day": 1
+    }
+  },
+  "selection_mode": "groups",
+  "selected_groups": [
+    "CLASE"
+  ],
+  "allowed_weekdays": [
+    0,
+    1,
+    3,
+    4
+  ],
+  "preferred_slots": [
+    "18:00 19:30",
+    "19:30 21:00"
+  ],
+  "max_items_per_day": 2,
+  "default_location": "GUACARI",
+  "run_time": "06:00",
+  "automation_enabled": true,
+  "group_rules": {
+    "CLASE": {
+      "enabled": true,
+      "location": "GUACARI",
+      "allowed_weekdays": [
+        0,
+        1,
+        3,
+        4
+      ],
+      "preferred_slots": [
+        "18:00 19:30",
+        "19:30 21:00"
+      ],
+      "max_per_day": 2
+    }
+  }
+}

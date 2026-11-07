@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Automate Classes</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif;
+      --blue: #0071e3; --blue-hover: #0077ed; --ink: #1d1d1f; --muted: #6e6e73;
+      --surface: #fff; --background: #f5f5f7; --line: #d2d2d7; --green: #30a46c;
+      --red: #e5484d; --amber: #f5a623; --shadow: 0 12px 36px rgba(0,0,0,.07);
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--background); color: var(--ink); letter-spacing: -.012em; }
+    nav { position: sticky; top: 0; z-index: 20; height: 56px; display: flex; align-items: center;
+      justify-content: space-between; padding: 0 max(24px, calc((100vw - 1120px)/2));
+      background: rgba(250,250,252,.82); backdrop-filter: saturate(180%) blur(20px); border-bottom: 1px solid #00000012; }
+    .brand { font-weight: 650; font-size: 17px; }
+    .nav-status { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); }
+    main { max-width: 1120px; margin: 0 auto; padding: 52px 24px 90px; }
+    .hero { text-align: center; max-width: 760px; margin: 0 auto 46px; }
+    .eyebrow { color: var(--blue); text-transform: uppercase; letter-spacing: .09em; font-size: 12px; font-weight: 700; }
+    h1 { margin: 10px 0 14px; font-size: clamp(38px, 6vw, 64px); line-height: 1.02; letter-spacing: -.055em; }
+    .hero p { color: var(--muted); font-size: 20px; line-height: 1.45; margin: 0; }
+    .steps { display: grid; grid-template-columns: repeat(4,1fr); gap: 10px; margin-bottom: 24px; }
+    .step-pill { padding: 13px 15px; border-radius: 14px; background: #e8e8ed; color: var(--muted); font-size: 13px; font-weight: 600; }
+    .step-pill.active { color: var(--blue); background: #e8f2ff; }
+    .step-pill.done { color: #137a4a; background: #e7f7ef; }
+    .card { background: var(--surface); border-radius: 24px; padding: 30px; margin-bottom: 18px; box-shadow: var(--shadow); }
+    .card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 24px; }
+    h2 { margin: 0 0 7px; font-size: 25px; letter-spacing: -.035em; }
+    h3 { margin: 0 0 8px; font-size: 17px; }
+    p { color: var(--muted); line-height: 1.5; }
+    .card-head p { margin: 0; }
+    .badge { border-radius: 999px; padding: 7px 11px; background: #f0f0f2; color: var(--muted); font-size: 12px; white-space: nowrap; }
+    .badge.ok { background: #e7f7ef; color: #137a4a; }
+    .grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 16px; }
+    .grid-3 { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 14px; }
+    label.field { display: grid; gap: 8px; color: #424245; font-size: 13px; font-weight: 600; }
+    input, select { width: 100%; border: 1px solid var(--line); border-radius: 12px; background: #fff; color: var(--ink);
+      padding: 12px 13px; font: inherit; outline: 0; transition: border .2s, box-shadow .2s; }
+    input:focus, select:focus { border-color: var(--blue); box-shadow: 0 0 0 4px #0071e31a; }
+    button { border: 0; border-radius: 999px; padding: 11px 18px; background: var(--blue); color: white;
+      font: inherit; font-size: 14px; font-weight: 650; cursor: pointer; transition: transform .15s, background .15s, opacity .15s; }
+    button:hover { background: var(--blue-hover); transform: translateY(-1px); }
+    button:disabled { opacity: .45; cursor: not-allowed; transform: none; }
+    button.secondary { background: #e8e8ed; color: var(--ink); }
+    button.danger { background: #fff0f0; color: #c72c32; }
+    button.ghost { background: transparent; color: var(--blue); padding-inline: 8px; }
+    .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 22px; }
+    .choice-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(230px,1fr)); gap: 12px; }
+    .choice { position: relative; padding: 18px; border: 1px solid var(--line); border-radius: 16px; cursor: pointer; transition: .18s; }
+    .choice:hover { border-color: #9d9da3; transform: translateY(-1px); }
+    .choice.selected { border: 2px solid var(--blue); padding: 17px; background: #f5faff; }
+    .choice strong { display: block; margin-bottom: 5px; }
+    .choice small { color: var(--muted); line-height: 1.4; display: block; }
+    .count { position: absolute; right: 14px; top: 14px; background: #eeeef0; border-radius: 999px; padding: 4px 8px; font-size: 11px; }
+    .segmented { display: inline-flex; padding: 4px; background: #ededf0; border-radius: 12px; gap: 3px; }
+    .segmented button { color: var(--muted); background: transparent; border-radius: 9px; padding: 9px 13px; }
+    .segmented button.selected { background: white; color: var(--ink); box-shadow: 0 1px 5px #0002; }
+    .weekdays { display: flex; flex-wrap: wrap; gap: 8px; }
+    .day { width: 44px; height: 44px; border-radius: 50%; padding: 0; background: #ededf0; color: var(--muted); }
+    .day.selected { background: var(--blue); color: white; }
+    .slot-row { display: grid; grid-template-columns: 1fr 1fr auto; gap: 10px; margin-bottom: 9px; align-items: center; }
+    .empty { text-align: center; padding: 42px 18px; border: 1px dashed var(--line); border-radius: 16px; color: var(--muted); }
+    .scheduler { display: grid; grid-template-columns: 1fr auto; gap: 22px; align-items: center; background: linear-gradient(135deg,#161617,#303033); color: white; }
+    .scheduler p { color: #bcbcc1; margin: 5px 0 0; }
+    .scheduler .badge { background: #ffffff1a; color: #ddd; }
+    .scheduler .badge.ok { background: #31a66b35; color: #7ee2ad; }
+    .group-rule { border: 1px solid #e2e2e7; border-radius: 16px; padding: 18px; margin-top: 14px; }
+    .group-rule h3 { margin: 0 0 14px; }
+    .group-days { display:flex; gap:6px; margin-top:12px; }
+    .group-days button { width:34px; min-width:34px; padding:8px 0; }
+    .group-days button.selected { background:#1d1d1f; color:white; }
+    .choice.informational { opacity:.66; cursor:default; }
+    .log { margin-top: 18px; background: #161617; color: #d7d7db; border-radius: 16px; padding: 16px; white-space: pre-wrap;
+      font: 12px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace; max-height: 230px; overflow: auto; display: none; }
+    .toast { position: fixed; right: 22px; bottom: 22px; max-width: 420px; background: #1d1d1f; color: white; border-radius: 16px;
+      padding: 15px 18px; box-shadow: 0 18px 60px #0004; transform: translateY(130px); opacity: 0; transition: .25s; z-index: 50; }
+    .toast.show { transform: translateY(0); opacity: 1; }
+    .spinner { width: 17px; height: 17px; border: 2px solid #ffffff55; border-top-color: white; border-radius: 50%; display: inline-block;
+      animation: spin .7s linear infinite; vertical-align: -3px; margin-right: 7px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    dialog { width: min(900px,94vw); border: 0; border-radius: 24px; padding: 0; box-shadow: 0 30px 100px #0005; }
+    dialog::backdrop { background: #0008; backdrop-filter: blur(5px); }
+    .dialog-body { padding: 28px; max-height: 76vh; overflow: auto; }
+    .option-list { display: flex; flex-wrap: wrap; gap: 8px; }
+    .option-chip { padding: 8px 11px; background: #eeeef0; border-radius: 999px; font-size: 13px; }
+    .hidden { display: none !important; }
+    @media (max-width: 760px) {
+      main { padding: 35px 14px 70px; } .steps { grid-template-columns: 1fr 1fr; }
+      .grid,.grid-3 { grid-template-columns: 1fr; } .card { padding: 22px; border-radius: 20px; }
+      .scheduler { grid-template-columns: 1fr; } h1 { font-size: 42px; }
+    }
+  </style>
+</head>
+<body>
+  <nav><div class="brand">Automate Classes</div><div class="nav-status"><span class="dot"></span><span id="navStatus">Servidor conectado</span></div></nav>
+  <main>
+    <header class="hero">
+      <div class="eyebrow">Programación inteligente</div>
+      <h1>Tu agenda de Smart,<br>en piloto automático.</h1>
+      <p>Explora tus opciones reales, define qué quieres tomar y deja que el sistema programe el día siguiente.</p>
+    </header>
+
+    <div class="steps">
+      <div class="step-pill active" id="step1">1 · Conexión</div>
+      <div class="step-pill" id="step2">2 · Plan</div>
+      <div class="step-pill" id="step3">3 · Contenido</div>
+      <div class="step-pill" id="step4">4 · Automatización</div>
+    </div>
+
+    <section class="card">
+      <div class="card-head"><div><h2>Conecta tu cuenta</h2><p>La contraseña se guarda en el Administrador de credenciales de Windows.</p></div><span class="badge" id="credentialBadge">Sin verificar</span></div>
+      <div class="grid">
+        <label class="field">URL de Smart<input id="smartUrl" type="url"></label>
+        <label class="field">Usuario<input id="smartUsername" autocomplete="username"></label>
+        <label class="field">Contraseña<input id="smartPassword" type="password" autocomplete="current-password" placeholder="••••••••"></label>
+      </div>
+      <div class="actions"><button id="explorePlansBtn" onclick="saveAndExplorePlans()">Guardar y explorar planes</button></div>
+    </section>
+
+    <section class="card">
+      <div class="card-head"><div><h2>Elige tu plan de estudios</h2><p>Estos datos se leen directamente después de entrar a Matrículas.</p></div><span class="badge" id="planBadge">Pendiente</span></div>
+      <div id="planChoices" class="empty">Conecta tu cuenta para descubrir los planes disponibles.</div>
+      <div class="actions"><button id="pendingBtn" onclick="explorePending()" disabled>Explorar pendientes</button></div>
+    </section>
+
+    <section class="card">
+      <div class="card-head"><div><h2>¿Qué deseas programar?</h2><p>Las clases usan las reglas principales. Smart Zone puede activarse con una programación independiente; los demás pendientes son informativos.</p></div><span class="badge" id="itemBadge">Sin explorar</span></div>
+      <div id="groupChoices" class="empty" style="margin-top:18px">Selecciona un plan y consulta sus pendientes.</div>
+      <div id="groupRuleEditors" style="margin-top:22px"></div>
+    </section>
+
+    <section class="card">
+      <div class="card-head"><div><h2>Programación de clases</h2><p>Estas reglas se aplican únicamente a las clases regulares.</p></div><span class="badge">Horizonte configurable</span></div>
+      <div class="grid">
+        <div>
+          <h3>Días de clase</h3>
+          <div class="weekdays" id="weekdays"></div>
+        </div>
+        <div class="grid">
+          <label class="field">Máximo por día<input id="maxPerDay" type="number" min="1" max="12" value="2"></label>
+          <label class="field">Sede<select id="defaultLocation"><option value="GUACARI">GUACARI</option></select></label>
+          <label class="field">Horizonte futuro (días)<input id="horizonDays" type="number" min="1" max="14" value="1"></label>
+          <label class="field">Automatización en GitHub<select id="automationEnabled"><option value="true">Activa</option><option value="false">Detenida</option></select></label>
+        </div>
+      </div>
+      <div style="margin-top:24px">
+        <h3>Franjas horarias</h3>
+        <div id="slots"></div>
+        <button class="secondary" onclick="addSlot()">+ Añadir franja</button>
+      </div>
+      <div class="grid" style="margin-top:24px">
+        <label class="field">Si una franja está ocupada
+          <select id="partialPolicy"><option value="fill_free_slots">Usar las demás franjas libres</option><option value="skip_entire_day">Omitir esa programación durante el día</option></select>
+        </label>
+        <label class="field">Frecuencia en GitHub<input value="Cada 30 minutos" disabled></label>
+      </div>
+      <div class="actions">
+        <button onclick="saveVisualProfile()">Guardar configuración</button>
+        <button class="secondary" onclick="runDry()">Simular sin programar</button>
+        <button class="danger" onclick="runReal()">Ejecutar ahora</button>
+      </div>
+      <pre id="executionLog" class="log"></pre>
+    </section>
+
+    <section class="card">
+      <div class="card-head"><div><h2>Ejecución automática</h2><p>GitHub ejecuta la configuración guardada cada 30 minutos, aunque este computador esté apagado.</p></div><span class="badge" id="githubBadge">Sin configurar</span></div>
+      <details>
+        <summary><strong>Conectar con GitHub (solo la primera vez)</strong></summary>
+        <p>El token únicamente permite publicar estas reglas en tu repositorio; no contiene la contraseña de Smart.</p>
+        <div class="grid">
+          <label class="field">Repositorio<input id="githubRepository" placeholder="propietario/repositorio"></label>
+          <label class="field">Token de acceso<input id="githubToken" type="password" placeholder="Token con permiso para Actions Variables"></label>
+        </div>
+        <div class="actions"><button onclick="saveGithubConfig()">Conectar y publicar configuración</button></div>
+      </details>
+    </section>
+
+    <section class="card scheduler">
+      <div><div class="badge" id="schedulerBadge">Detenido</div><h2 style="margin-top:12px">Programación automática</h2><p id="schedulerDescription">GitHub consulta el perfil cada 30 minutos.</p></div>
+      <div class="actions" style="margin:0">
+        <button id="startCronBtn" onclick="startCron()">Activar</button>
+        <button class="secondary" onclick="pauseCron()">Detener</button>
+      </div>
+    </section>
+  </main>
+
+  <dialog id="optionsDialog"><div class="dialog-body"><div class="card-head"><div><h2>Opciones encontradas</h2><p id="optionsSubtitle"></p></div><button class="secondary" onclick="optionsDialog.close()">Cerrar</button></div><h3>Sedes</h3><div class="option-list" id="modalLocations"></div><h3 style="margin-top:22px">Días</h3><div class="option-list" id="modalDays"></div><h3 style="margin-top:22px">Horarios publicados</h3><div id="modalSchedules"></div></div></dialog>
+  <div class="toast" id="toast"></div>
+
+  <script>
+    const state = { profile: null, plans: [], items: [], selectedPlan: '', mode: 'groups', selectedGroups: new Set(['CLASE']), groupRules: {}, groupOptions: {}, busy: false };
+    const dayNames = ['L','M','X','J','V','S','D'];
+    const $ = selector => document.querySelector(selector);
+    const optionsDialog = $('#optionsDialog');
+
+    async function request(url, options={}) {
+      const response = await fetch(url, options);
+      const contentType = response.headers.get('content-type') || '';
+      const data = contentType.includes('json') ? await response.json() : await response.text();
+      if (!response.ok) throw new Error(data.detail || data || `HTTP ${response.status}`);
+      return data;
+    }
+    const jsonOptions = (method, body) => ({method, headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+    function notify(message, error=false) { const toast=$('#toast'); toast.textContent=message; toast.style.background=error?'#b4232a':'#1d1d1f'; toast.classList.add('show'); setTimeout(()=>toast.classList.remove('show'),4200); }
+    function setBusy(button, value, text='Procesando') { state.busy=value; if(!button)return; button.disabled=value; if(value){button.dataset.label=button.textContent;button.innerHTML=`<span class="spinner"></span>${text}`;}else{button.textContent=button.dataset.label||button.textContent;} }
+    function markStep(number) { for(let i=1;i<=4;i++){ const el=$(`#step${i}`); el.className='step-pill '+(i<number?'done':i===number?'active':''); } }
+
+    async function bootstrap() {
+      try {
+        const [credentials, profile, scheduler, github] = await Promise.all([request('/api/credentials'),request('/api/profile'),request('/api/scheduler'),request('/api/github')]);
+        state.profile=profile; state.selectedPlan=profile.study_plan||''; state.mode='groups'; state.selectedGroups=new Set((profile.selected_groups||[]).filter(group=>['CLASE','SMART ZONE'].includes(group)));state.selectedGroups.add('CLASE');state.groupRules=profile.group_rules||{};
+        $('#smartUrl').value=credentials.url||''; $('#smartUsername').value=credentials.username||'';
+        if(credentials.password_configured){$('#credentialBadge').textContent='Configurada';$('#credentialBadge').className='badge ok';}
+        hydrateProfile(profile); renderScheduler(scheduler); renderGithub(github); renderGroupRules();
+      } catch(error){notify(error.message,true);}
+    }
+
+    async function saveAndExplorePlans() {
+      const button=$('#explorePlansBtn'); setBusy(button,true,'Conectando');
+      try {
+        await request('/api/credentials',jsonOptions('PUT',{url:$('#smartUrl').value,username:$('#smartUsername').value,password:$('#smartPassword').value}));
+        $('#smartPassword').value=''; $('#credentialBadge').textContent='Verificada'; $('#credentialBadge').className='badge ok';
+        const data=await request('/api/explore/plans',{method:'POST'}); state.plans=data.plans; renderPlans(); markStep(2); notify(`${data.plans.length} plan(es) encontrado(s).`);
+      } catch(error){notify(error.message,true);} finally{setBusy(button,false);}
+    }
+
+    function renderPlans() {
+      const container=$('#planChoices'); container.className='choice-grid'; container.innerHTML='';
+      if(!state.plans.length){container.className='empty';container.textContent='Smart no devolvió planes de estudio.';return;}
+      if(!state.plans.some(plan=>plan.code===state.selectedPlan)) state.selectedPlan='';
+      state.plans.forEach(plan=>{const card=document.createElement('div');card.className='choice'+(state.selectedPlan===plan.code?' selected':'');card.innerHTML=`<strong></strong><small></small>`;card.querySelector('strong').textContent=plan.code;card.querySelector('small').textContent=plan.description;card.onclick=()=>selectPlan(plan.code);container.appendChild(card);});
+      if(state.selectedPlan) $('#pendingBtn').disabled=false;
+    }
+    function selectPlan(code){state.selectedPlan=code;$('#pendingBtn').disabled=false;$('#planBadge').textContent=code;$('#planBadge').className='badge ok';renderPlans();}
+
+    async function explorePending(){const button=$('#pendingBtn');setBusy(button,true,'Explorando');try{const data=await request('/api/explore/pending',jsonOptions('POST',{study_plan:state.selectedPlan}));state.items=data.items;renderGroups();renderGroupRules();$('#itemBadge').textContent=`${data.items.length} pendientes`;$('#itemBadge').className='badge ok';markStep(3);await loadGroupOptions('CLASE',true);if(state.selectedGroups.has('SMART ZONE'))await loadGroupOptions('SMART ZONE',true);notify('Inventario y sedes disponibles actualizados.');}catch(error){notify(error.message,true);}finally{setBusy(button,false);}}
+
+    function groupedItems(){return state.items.reduce((groups,item)=>{(groups[item.group]??=[]).push(item);return groups;},{});}
+    function renderGroups(){const container=$('#groupChoices');container.className='choice-grid';container.innerHTML='';const groups=groupedItems();Object.entries(groups).forEach(([name,items])=>{const programmable=['CLASE','SMART ZONE'].includes(name);const card=document.createElement('div');card.className='choice'+(state.selectedGroups.has(name)?' selected':'')+(programmable?'':' informational');const title=document.createElement('strong');title.textContent=name;const sample=document.createElement('small');sample.textContent=items.slice(0,3).map(i=>i.description).join(' · ');const count=document.createElement('span');count.className='count';count.textContent=items.length;card.append(title,sample,count);if(programmable){const inspect=document.createElement('button');inspect.className='ghost';inspect.textContent='Actualizar sedes y horarios';inspect.onclick=event=>{event.stopPropagation();loadGroupOptions(name);};card.appendChild(inspect);card.onclick=()=>toggleGroup(name);}else{const note=document.createElement('small');note.textContent='Informativo · no se programa automáticamente';card.appendChild(note);}container.appendChild(card);});if(!Object.keys(groups).length){container.className='empty';container.textContent='No se encontraron pendientes.';}}
+    async function toggleGroup(name){if(name==='CLASE')return;if(state.selectedGroups.has(name)){state.selectedGroups.delete(name);}else{state.selectedGroups.add(name);ensureGroupRule(name);await loadGroupOptions(name,true);}renderGroups();renderGroupRules();}
+
+    async function exploreOptions(item){notify('Consultando opciones reales de Smart…');try{const data=await request('/api/explore/options',jsonOptions('POST',{study_plan:state.selectedPlan,item_key:item.key}));$('#optionsSubtitle').textContent=data.warning||`${data.item.description} · Pulsa una sede u horario para usarlo en ${item.group}`;renderChips('#modalLocations',data.locations,'Sin selector de sede',location=>{ensureGroupRule(item.group);state.groupRules[item.group].location=location;state.selectedGroups.add(item.group);renderGroups();renderGroupRules();notify(`Sede ${location} aplicada a ${item.group}.`);});renderChips('#modalDays',data.days,'Sin selector de día');const schedules=$('#modalSchedules');schedules.innerHTML='';(data.schedules.length?data.schedules:[data.warning||'No se encontraron filas de horario.']).forEach(value=>{const p=document.createElement('p');p.textContent=value;p.style.cursor='pointer';p.onclick=()=>{const match=value.match(/(\d{1,2}:\d{2})\s+(\d{1,2}:\d{2})/);if(!match)return;const slot=`${match[1].padStart(5,'0')} ${match[2].padStart(5,'0')}`;ensureGroupRule(item.group);const slots=state.groupRules[item.group].preferred_slots||[];if(!slots.includes(slot))slots.push(slot);state.groupRules[item.group].preferred_slots=slots;state.selectedGroups.add(item.group);renderGroups();renderGroupRules();notify(`Horario ${slot} aplicado a ${item.group}.`);};schedules.appendChild(p);});const list=$('#locationOptions');data.locations.forEach(location=>{if(![...list.options].some(o=>o.value===location)){const option=document.createElement('option');option.value=location;list.appendChild(option);}});optionsDialog.showModal();}catch(error){notify(error.message,true);}}
+    function renderChips(selector,values,empty,onSelect){const container=$(selector);container.innerHTML='';(values.length?values:[empty]).forEach(value=>{const chip=document.createElement('span');chip.className='option-chip';chip.textContent=value;if(onSelect&&values.length){chip.style.cursor='pointer';chip.onclick=()=>onSelect(value);}container.appendChild(chip);});}
+
+    async function loadGroupOptions(group,silent=false){const item=state.items.find(value=>value.group===group);if(!item)return;try{if(!silent)notify(`Consultando sedes y horarios para ${group}…`);const data=await request('/api/explore/options',jsonOptions('POST',{study_plan:state.selectedPlan,item_key:item.key}));state.groupOptions[group]=data;if(group==='CLASE'){setLocationOptions($('#defaultLocation'),data.locations,$('#defaultLocation').value||state.profile?.default_location);}else{ensureGroupRule(group);if(data.locations.length&&!data.locations.includes(state.groupRules[group].location))state.groupRules[group].location=data.locations[0];renderGroupRules();}if(!silent)notify(`${data.locations.length} sede(s) encontradas para ${group}.`);}catch(error){notify(error.message,true);}}
+    function setLocationOptions(select,locations,selected){const values=[...new Set([selected,...locations].filter(Boolean))];select.innerHTML='';values.forEach(value=>{const option=document.createElement('option');option.value=value;option.textContent=value;select.appendChild(option);});if(selected&&values.includes(selected))select.value=selected;}
+
+    function renderWeekdays(selected=[]){const container=$('#weekdays');container.innerHTML='';dayNames.forEach((name,index)=>{const button=document.createElement('button');button.className='day'+(selected.includes(index)?' selected':'');button.textContent=name;button.dataset.day=index;button.onclick=()=>button.classList.toggle('selected');container.appendChild(button);});}
+    function addSlot(start='18:00',end='19:30'){const row=document.createElement('div');row.className='slot-row';row.innerHTML=`<input type="time" class="slot-start"><input type="time" class="slot-end"><button class="danger" type="button">×</button>`;row.querySelector('.slot-start').value=start;row.querySelector('.slot-end').value=end;row.querySelector('button').onclick=()=>row.remove();$('#slots').appendChild(row);}
+    function ensureGroupRule(group){if(state.groupRules[group])return;state.groupRules[group]={enabled:true,location:$('#defaultLocation').value||'GUACARI',allowed_weekdays:[...document.querySelectorAll('.day.selected')].map(value=>Number(value.dataset.day)),preferred_slots:[],max_per_day:1};}
+    function renderGroupRules(){const container=$('#groupRuleEditors');container.innerHTML='';const groups=[...state.selectedGroups].filter(group=>group==='SMART ZONE');if(!groups.length)return;const heading=document.createElement('h3');heading.textContent='Programación independiente de Smart Zone';container.appendChild(heading);groups.forEach(group=>{ensureGroupRule(group);const rule=state.groupRules[group];const editor=document.createElement('div');editor.className='group-rule';editor.dataset.group=group;editor.innerHTML=`<h3>SMART ZONE</h3><p>Configura días y horarios distintos a tus clases regulares.</p><div class="grid"><label class="field">Sede<select class="group-location"></select></label><label class="field">Máximo por día<input class="group-max" type="number" min="1" max="12"></label></div><div class="group-days"></div><div class="group-slots"></div><button type="button" class="secondary add-group-slot">+ Añadir franja</button>`;setLocationOptions(editor.querySelector('.group-location'),state.groupOptions[group]?.locations||[],rule.location);editor.querySelector('.group-max').value=rule.max_per_day||1;const days=editor.querySelector('.group-days');dayNames.forEach((name,index)=>{const button=document.createElement('button');button.type='button';button.dataset.day=index;button.textContent=name;button.className=(rule.allowed_weekdays||[]).includes(index)?'selected':'';button.onclick=()=>button.classList.toggle('selected');days.appendChild(button);});const slots=editor.querySelector('.group-slots');const add=(value='')=>{const [start='',end='']=value.split(' ');const row=document.createElement('div');row.className='slot-row';row.innerHTML=`<input type="time" class="slot-start"><input type="time" class="slot-end"><button class="danger" type="button">×</button>`;row.querySelector('.slot-start').value=start;row.querySelector('.slot-end').value=end;row.querySelector('button').onclick=()=>row.remove();slots.appendChild(row);};(rule.preferred_slots||[]).forEach(add);if(!slots.children.length)add();editor.querySelector('.add-group-slot').onclick=()=>add();container.appendChild(editor);});}
+    function collectGroupRules(){const weekdays=[...document.querySelectorAll('.day.selected')].map(value=>Number(value.dataset.day));const classSlots=[...document.querySelectorAll('#slots > .slot-row')].map(row=>`${row.querySelector('.slot-start').value} ${row.querySelector('.slot-end').value}`).filter(value=>value.split(' ').every(Boolean));const rules={CLASE:{enabled:true,location:$('#defaultLocation').value,allowed_weekdays:weekdays,preferred_slots:classSlots,max_per_day:Number($('#maxPerDay').value)}};document.querySelectorAll('.group-rule').forEach(editor=>{rules[editor.dataset.group]={enabled:true,location:editor.querySelector('.group-location').value,allowed_weekdays:[...editor.querySelectorAll('.group-days button.selected')].map(value=>Number(value.dataset.day)),preferred_slots:[...editor.querySelectorAll('.group-slots .slot-row')].map(row=>`${row.querySelector('.slot-start').value} ${row.querySelector('.slot-end').value}`).filter(value=>value.split(' ').every(Boolean)),max_per_day:Number(editor.querySelector('.group-max').value)};});state.groupRules=rules;return rules;}
+    function hydrateProfile(profile){renderWeekdays(profile.allowed_weekdays||[0,1,3,4]);$('#maxPerDay').value=profile.max_items_per_day||2;setLocationOptions($('#defaultLocation'),[],profile.default_location||'GUACARI');$('#horizonDays').value=profile.horizon_days||Math.max(...(profile.target_day_offsets||[1]));$('#automationEnabled').value=String(profile.automation_enabled!==false);$('#partialPolicy').value=profile.partial_occupancy_policy||'fill_free_slots';$('#slots').innerHTML='';(profile.preferred_slots||[]).forEach(slot=>{const [start,end]=slot.split(' ');addSlot(start,end);});if(!$('#slots').children.length)addSlot();}
+    function collectProfile(){const weekdays=[...document.querySelectorAll('.day.selected')].map(button=>Number(button.dataset.day));const slots=[...document.querySelectorAll('#slots > .slot-row')].map(row=>`${row.querySelector('.slot-start').value} ${row.querySelector('.slot-end').value}`).filter(value=>value.split(' ').every(Boolean));const horizon=Number($('#horizonDays').value);return {...state.profile,study_plan:state.selectedPlan,selection_mode:state.mode,selected_groups:state.mode==='groups'?[...state.selectedGroups]:[],group_rules:collectGroupRules(),allowed_weekdays:weekdays,preferred_slots:slots,max_items_per_day:Number($('#maxPerDay').value),default_location:$('#defaultLocation').value.trim(),partial_occupancy_policy:$('#partialPolicy').value,run_time:state.profile?.run_time||'06:00',target_day_offset:1,target_day_offsets:Array.from({length:horizon},(_,index)=>index+1),horizon_days:horizon,automation_enabled:$('#automationEnabled').value==='true'};}
+    async function saveVisualProfile(){try{const result=await request('/api/profile',jsonOptions('PUT',collectProfile()));state.profile=result.profile;renderScheduler();markStep(4);notify(result.github?.published?'Configuración guardada y publicada en GitHub.':'Configuración guardada localmente. Conecta GitHub para publicarla.');return true;}catch(error){notify(error.message,true);return false;}}
+
+    function renderGithub(data){$('#githubRepository').value=data.repository||'';const badge=$('#githubBadge');badge.textContent=data.token_configured?'Conectado':'Sin configurar';badge.className='badge'+(data.token_configured?' ok':'');}
+    async function saveGithubConfig(){try{const data=await request('/api/github',jsonOptions('PUT',{repository:$('#githubRepository').value,token:$('#githubToken').value}));$('#githubToken').value='';renderGithub(data);notify('GitHub conectado y perfil publicado.');}catch(error){notify(error.message,true);}}
+
+    async function runDry(){if(!await saveVisualProfile())return;const log=$('#executionLog');log.style.display='block';log.textContent='Consultando el horizonte y los pendientes…';try{const data=await request('/api/dry-run',{method:'POST'});log.textContent=JSON.stringify(data.report,null,2);notify('Simulación terminada. No se confirmó ninguna programación.');}catch(error){log.textContent=error.message;notify(error.message,true);}}
+    async function runReal(){if(!confirm('Se confirmarán programaciones reales según el horizonte guardado. ¿Continuar?'))return;if(!await saveVisualProfile())return;const log=$('#executionLog');log.style.display='block';log.textContent='Ejecutando en Smart…';try{const data=await request('/api/run?confirm=true',{method:'POST'});log.textContent=JSON.stringify(data.report,null,2);notify('Ejecución finalizada.');}catch(error){log.textContent=error.message;notify(error.message,true);}}
+
+    async function refreshScheduler(){renderScheduler();}
+    function renderScheduler(){const active=state.profile?.automation_enabled!==false;const badge=$('#schedulerBadge');badge.textContent=active?'Activo':'Detenido';badge.className='badge'+(active?' ok':'');$('#schedulerDescription').textContent=active?'GitHub consulta esta configuración cada 30 minutos.':'La configuración se conserva, pero las ejecuciones programadas se omiten.';}
+    async function startCron(){$('#automationEnabled').value='true';if(await saveVisualProfile())notify('Automatización activada en GitHub.');}
+    async function pauseCron(){$('#automationEnabled').value='false';if(await saveVisualProfile())notify('Automatización detenida. La configuración se conserva.');}
+
+    bootstrap();
+  </script>
+</body>
+</html>

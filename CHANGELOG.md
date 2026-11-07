@@ -1,5 +1,28 @@
 # Historial de cambios
 
+## [2026-11-07] Perfil web configurable y sincronizado con GitHub
+
+- La web guarda un horizonte de 1 a 14 días futuros.
+- Cada grupo seleccionado puede tener sede, días, franjas y máximo independientes.
+- La interfaz unifica la selección: `CLASE` usa las reglas principales y solo `SMART ZONE` muestra reglas independientes.
+- Las sedes se consultan desde Smart y se muestran en listas seleccionables para cada programación.
+- Quiz, exámenes y videos se muestran como pendientes informativos, no como opciones automáticas.
+- El perfil se publica en `PROGRAMMING_PROFILE_JSON` mediante GitHub API.
+- GitHub Actions consulta el perfil cada 30 minutos y respeta el interruptor de automatización.
+
+## [2026-10-31] Perfiles configurables y planificador compartido
+
+- Se separó la clasificación de ítems y ahora reconoce prefijos como `2. CLASE 1`.
+- Se agregó un perfil recurrente para tipos, sedes, días, horarios y prioridades.
+- El día actual se consulta como referencia y la programación apunta solo a mañana.
+- La ocupación parcial puede configurarse para usar franjas libres u omitir el día.
+- Se agregó modo `--dry-run`, aplicación web y consulta de pendientes sin asignación.
+- GitHub Actions ejecuta pruebas antes de la automatización y vuelve al cron de 6:00 a.m.
+- Se agregó asistente visual para credenciales, planes, grupos y reglas de programación.
+- Playwright se ejecuta en un ProactorEventLoop dedicado para ser compatible con Uvicorn en Windows.
+- La exploración obtiene planes, pendientes paginados y opciones de asignación sin confirmar.
+- El scheduler local puede iniciarse, detenerse y eliminarse desde la interfaz.
+
 ## [2026-07-14] Iteración sobre hoy y mañana + detección de items especiales
 
 **Problema original:** El sistema solo programaba para `dias_anticipacion=1` (mañana). Si se ejecutaba manualmente después de hacer un quiz, el día de hoy se quedaba sin clases.

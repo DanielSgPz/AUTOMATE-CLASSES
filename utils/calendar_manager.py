@@ -4,7 +4,7 @@ from datetime import timedelta
 from utils.timezone import now_colombia
 
 
-def evaluar_programacion_hoy(dias_anticipacion=1):
+def evaluar_programacion_hoy(dias_anticipacion=1, dias_permitidos=None):
     """
     Determina si hoy es el día correcto para ejecutar la programación
     con antelación configurable (por defecto: mañana) y festivos.
@@ -15,8 +15,9 @@ def evaluar_programacion_hoy(dias_anticipacion=1):
 
     dia_objetivo = fecha_objetivo.weekday()  # 0=Lunes, 1=Martes...
 
-    # Tus días de clase: Lunes(0), Martes(1), Jueves(3), Viernes(4)
-    dias_clase = [0, 1, 3, 4]
+    # Conserva el calendario histórico como valor por defecto. Los perfiles pueden
+    # habilitar otros días para Smart Zone, quizzes o exámenes.
+    dias_clase = list(dias_permitidos) if dias_permitidos is not None else [0, 1, 3, 4]
 
     print(
         f"Hoy es {hoy.strftime('%A')}. "
@@ -30,7 +31,7 @@ def evaluar_programacion_hoy(dias_anticipacion=1):
         return {
             "ok": False,
             "motivo": "no_dia_de_clase",
-            "detalle": "La fecha objetivo no corresponde a Lunes, Martes, Jueves o Viernes.",
+            "detalle": "La fecha objetivo no está habilitada en el perfil de programación.",
             "hoy": hoy.isoformat(),
             "fecha_objetivo": fecha_objetivo.isoformat(),
         }
@@ -57,5 +58,8 @@ def evaluar_programacion_hoy(dias_anticipacion=1):
     }
 
 
-def debe_programar_hoy(dias_anticipacion=1):
-    return evaluar_programacion_hoy(dias_anticipacion=dias_anticipacion)["ok"]
+def debe_programar_hoy(dias_anticipacion=1, dias_permitidos=None):
+    return evaluar_programacion_hoy(
+        dias_anticipacion=dias_anticipacion,
+        dias_permitidos=dias_permitidos,
+    )["ok"]

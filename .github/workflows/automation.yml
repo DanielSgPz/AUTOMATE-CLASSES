@@ -2,10 +2,8 @@ name: Automate Classes
 
 on:
   schedule:
-    # 11:00 UTC equivale a 06:00 en Colombia (UTC-5).
-    # Se ejecuta solo los días previos a clase:
-    # Domingo->Lunes, Lunes->Martes, Miércoles->Jueves, Jueves->Viernes.
-    - cron: "*/30  * * * 0,1,3,4"
+    # GitHub puede retrasar algunos minutos los cron. El perfil decide qué días y reglas usar.
+    - cron: "*/30 * * * *"
   workflow_dispatch:
 
 concurrency:
@@ -24,6 +22,7 @@ jobs:
       SMART_PASSWORD: ${{ secrets.SMART_PASSWORD }}
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      PROGRAMMING_PROFILE_JSON: ${{ vars.PROGRAMMING_PROFILE_JSON }}
 
     steps:
       - name: Checkout repository
@@ -42,8 +41,11 @@ jobs:
       - name: Install Playwright browser
         run: python -m playwright install --with-deps chromium
 
+      - name: Run unit tests
+        run: python -m unittest discover -v
+
       - name: Run automation
-        run: python main.py
+        run: python main.py --scheduled
 
       - name: Upload screenshots artifacts
         if: always()

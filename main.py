@@ -1,15 +1,18 @@
 import os
 import asyncio
+import argparse
 from datetime import timedelta
 from playwright.async_api import async_playwright
 
 # Importamos nuestras piezas
 from utils.credentials import load_smart_credentials, load_telegram_config
 from utils.auth import login_generico
-from utils.actions import iniciar_programacion_clases, navegar_a_programacion, programar_clases_pendientes, tomar_screenshots, validar_proceso, cerrar_anuncio_inicial, validar_horario_dia_objetivo
+from utils.actions import programar_clases_pendientes, tomar_screenshots, validar_horario_dia_objetivo
 from utils.calendar_manager import evaluar_programacion_hoy
+from utils.navigation import cerrar_anuncio_inicial, iniciar_programacion_clases, navegar_a_programacion, validar_proceso
 from utils.telegram_notifier import enviar_resumen_telegram
 from utils.timezone import now_colombia
+from utils.profile import load_profile
 
 
 async def crear_evidencia_omitido(nombre_archivo, titulo, detalle):
@@ -70,14 +73,19 @@ async def crear_evidencia_omitido(nombre_archivo, titulo, detalle):
     return path
 
 
-async def workflow_principal():
-    dias_a_procesar = [0, 1]
+async def workflow_principal(profile_path=None, dry_run=False, scheduled=False):
+    profile = load_profile(profile_path)
+    dias_a_procesar = list(profile.target_day_offsets)
     inicio_ejecucion = now_colombia()
     telegram_cfg = load_telegram_config()
 
     dias_validos = []
+    dias_permitidos = profile.enabled_weekdays()
     for d in dias_a_procesar:
-        evaluacion = evaluar_programacion_hoy(dias_anticipacion=d)
+        evaluacion = evaluar_programacion_hoy(
+            dias_anticipacion=d,
+            dias_permitidos=dias_permitidos,
+        )
         if evaluacion["ok"]:
             dias_validos.append(d)
 
@@ -94,22 +102,31 @@ async def workflow_principal():
         "total_encontradas": 0,
         "items_especiales": [],
         "avisos": [],
+        "planificadas": [],
         "dias_con_clases_programadas": [],
         "screenshot_horario_final": "",
         "screenshot_omitido": "",
     }
 
+    if scheduled and not profile.automation_enabled:
+        reporte["estado"] = "omitido"
+        reporte["motivo"] = "automatizacion_desactivada"
+        return reporte
+
     try:
         if not dias_validos:
             reporte["estado"] = "omitido"
-            evaluacion_cero = evaluar_programacion_hoy(dias_anticipacion=0)
+            evaluacion_cero = evaluar_programacion_hoy(
+                dias_anticipacion=profile.target_day_offsets[0],
+                dias_permitidos=dias_permitidos,
+            )
             reporte["motivo"] = evaluacion_cero.get("motivo", "sin_dias_validos")
             reporte["screenshot_omitido"] = await crear_evidencia_omitido(
                 nombre_archivo="0_omitido_por_calendario",
                 titulo="Ejecucion omitida por reglas de calendario",
                 detalle=evaluacion_cero.get("detalle", "Ningún día de los procesados es válido para programar."),
             )
-            return
+            return reporte
 
         credenciales = load_smart_credentials()
         headless = os.getenv("PLAYWRIGHT_HEADLESS", "false").lower() in {"1", "true", "yes", "on"}
@@ -142,7 +159,7 @@ async def workflow_principal():
                     "detalle": "No se encontró el selector de usuario logueado.",
                     "screenshot": screenshot,
                 })
-                return
+                return reporte
 
             if not await navegar_a_programacion(page):
                 screenshot = await tomar_screenshots(page, "4_error_navegacion_programacion")
@@ -153,18 +170,45 @@ async def workflow_principal():
                     "detalle": "Falló la navegación al módulo principal de programación.",
                     "screenshot": screenshot,
                 })
-                return
+                return reporte
 
             await tomar_screenshots(page, "4_navegar_programacion_iniciado")
+
+            # El día actual se consulta como contexto y evidencia, pero nunca se programa.
+            slots_hoy = profile.all_enabled_slots()
+            if slots_hoy:
+                validacion_hoy = await validar_horario_dia_objetivo(
+                    page,
+                    dias_desde_hoy=0,
+                    horarios_habituales=slots_hoy,
+                    nombre_screenshot="5_horario_dia_actual",
+                )
+                if validacion_hoy.get("ok"):
+                    reporte["horario_dia_actual"] = {
+                        "ocupados": validacion_hoy.get("horarios_ocupados", []),
+                        "faltantes": validacion_hoy.get("horarios_faltantes", []),
+                    }
 
             # --- PASO 4: ITERAR SOBRE DÍAS VÁLIDOS ---
             for idx, dias_anticipacion in enumerate(dias_validos):
                 fecha_objetivo = (inicio_ejecucion + timedelta(days=dias_anticipacion)).strftime("%Y-%m-%d")
                 print(f"\n--- Procesando día objetivo: {fecha_objetivo} (anticipación={dias_anticipacion}) ---")
 
+                horarios_configurados = profile.slots_for_weekday(
+                    (inicio_ejecucion + timedelta(days=dias_anticipacion)).weekday()
+                )
+                if not horarios_configurados:
+                    reporte["avisos"].append({
+                        "fecha": fecha_objetivo,
+                        "motivo": "sin_horarios_configurados",
+                        "detalle": "El perfil no tiene franjas habilitadas para el día objetivo.",
+                    })
+                    continue
+
                 validacion_horario = await validar_horario_dia_objetivo(
                     page,
                     dias_desde_hoy=dias_anticipacion,
+                    horarios_habituales=horarios_configurados,
                     nombre_screenshot=f"5_horario_dia_{dias_anticipacion}_antes",
                 )
 
@@ -184,21 +228,26 @@ async def workflow_principal():
 
                 if horarios_ocupados:
                     print(
-                        f"{fecha_objetivo} ya tiene clases en {', '.join(horarios_ocupados)}. "
-                        "No se programa parcialmente este día."
+                        f"{fecha_objetivo} ya tiene programación en {', '.join(horarios_ocupados)}."
                     )
                     reporte["dias_con_clases_programadas"].append({
                         "fecha": fecha_objetivo,
                         "horarios": horarios_ocupados,
                     })
-                    continue
+                    uses_group_rules = profile.selection_mode == "groups" and bool(profile.group_rules)
+                    if profile.partial_occupancy_policy == "skip_entire_day" and not uses_group_rules:
+                        print("El perfil indica omitir el día completo ante ocupación parcial.")
+                        continue
 
                 if cantidad_a_programar == 0:
                     print(f"No hay franjas faltantes para {fecha_objetivo}. Día completo, saltando.")
                     continue
 
                 # --- ENTRAR A PROGRAMAR CLASES ---
-                iniciar_modulo_programacion = await iniciar_programacion_clases(page)
+                iniciar_modulo_programacion = await iniciar_programacion_clases(
+                    page,
+                    study_plan=profile.study_plan,
+                )
 
                 if not iniciar_modulo_programacion:
                     print(f"No se pudo iniciar la programación para {fecha_objetivo}.")
@@ -217,12 +266,15 @@ async def workflow_principal():
                 resultado_programacion = await programar_clases_pendientes(
                     page,
                     cantidad=cantidad_a_programar,
-                    sede="GUACARI",
                     dias_desde_hoy=dias_anticipacion,
                     horarios_objetivo=horarios_faltantes,
+                    horarios_ocupados=horarios_ocupados,
+                    profile=profile,
+                    dry_run=dry_run,
                 )
 
                 reporte["programadas"].extend(resultado_programacion.get("programadas", []))
+                reporte["planificadas"].extend(resultado_programacion.get("planificadas", []))
                 reporte["fallos"].extend(resultado_programacion.get("fallos", []))
                 reporte["avisos"].extend(resultado_programacion.get("avisos", []))
                 reporte["total_encontradas"] += resultado_programacion.get("total_encontradas", 0)
@@ -237,7 +289,7 @@ async def workflow_principal():
                 await cerrar_anuncio_inicial(page, "#gxp0_cls")
 
                 # Captura final del horario para el último día procesado
-                if resultado_programacion.get("programadas"):
+                if resultado_programacion.get("programadas") and not dry_run:
                     await tomar_screenshots(page, f"6_clases_programadas_dia_{dias_anticipacion}")
                     if idx == len(dias_validos) - 1:
                         validacion_horario_final = await validar_horario_dia_objetivo(
@@ -248,7 +300,10 @@ async def workflow_principal():
                         if validacion_horario_final.get("ok"):
                             reporte["screenshot_horario_final"] = validacion_horario_final.get("screenshot", "")
 
-            if reporte["fallos"] and not reporte["programadas"]:
+            if dry_run:
+                reporte["estado"] = "exito"
+                reporte["motivo"] = "simulacion_completada"
+            elif reporte["fallos"] and not reporte["programadas"]:
                 reporte["estado"] = "error"
                 reporte["motivo"] = reporte["fallos"][0]["motivo"]
             elif reporte["fallos"] and reporte["programadas"]:
@@ -290,6 +345,24 @@ async def workflow_principal():
     finally:
         fin_ejecucion = now_colombia()
         enviar_resumen_telegram(telegram_cfg, reporte, inicio_ejecucion, fin_ejecucion)
+    return reporte
 
 if __name__ == "__main__":
-    asyncio.run(workflow_principal())
+    parser = argparse.ArgumentParser(description="Automatización configurable de Smart")
+    parser.add_argument("--profile", help="Ruta al perfil JSON de programación")
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Construye y muestra el plan sin confirmar programaciones",
+    )
+    parser.add_argument(
+        "--scheduled",
+        action="store_true",
+        help="Respeta el interruptor automation_enabled del perfil",
+    )
+    args = parser.parse_args()
+    asyncio.run(workflow_principal(
+        profile_path=args.profile,
+        dry_run=args.dry_run,
+        scheduled=args.scheduled,
+    ))

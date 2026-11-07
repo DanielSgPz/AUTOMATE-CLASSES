@@ -54,6 +54,7 @@ def construir_resumen_telegram(reporte, inicio, fin):
     estado_icono = _estado_icono(reporte.get("estado", "desconocido"))
     fecha_objetivo = reporte.get("fecha_objetivo", "(sin fecha objetivo)")
     programadas = reporte.get("programadas", [])
+    planificadas = reporte.get("planificadas", [])
     fallos = reporte.get("fallos", [])
     total_encontradas = reporte.get("total_encontradas", 0)
     motivo = reporte.get("motivo", "")
@@ -71,6 +72,7 @@ def construir_resumen_telegram(reporte, inicio, fin):
         "📌 Totales",
         f"- Pendientes encontradas: {total_encontradas}",
         f"- Programadas: {len(programadas)}",
+        f"- Planificadas (simulación): {len(planificadas)}",
         f"- Fallos: {len(fallos)}",
     ]
 
@@ -112,6 +114,16 @@ def construir_resumen_telegram(reporte, inicio, fin):
     if programadas:
         lineas.extend(["", "✅ Clases programadas"])
         lineas.extend(_resumen_linea_programada(item) for item in programadas)
+
+    if planificadas:
+        lineas.extend(["", "🧪 Plan de simulación (sin confirmar)"])
+        for item in planificadas:
+            lineas.append(
+                f"  • {item.get('clase', '(sin item)')}\n"
+                f"     📅 {item.get('fecha_objetivo', '(sin fecha)')} | "
+                f"🕒 {item.get('hora_objetivo', '(sin hora)')} | "
+                f"📍 {item.get('sede', '(sin sede)')}"
+            )
 
     if fallos:
         lineas.extend(["", "🚨 Fallos detectados"])

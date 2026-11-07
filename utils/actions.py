@@ -2,7 +2,12 @@ import os
 import re
 from datetime import timedelta
 
+from utils.item_types import ItemType, classify_item
+from utils.pending_items import find_pending_item_locator, read_pending_items
+from utils.planner import build_programming_plan
+from utils.profile import ProgrammingProfile
 from utils.timezone import now_colombia
+from utils.assignment_options import find_location_select
 
 HORARIOS_PERMITIDOS = ["18:00 19:30", "19:30 21:00"]
 
@@ -10,22 +15,19 @@ PATRON_QUIZ = re.compile(r'^QUIZ', re.IGNORECASE)
 PATRON_PREP_EXAMEN = re.compile(r'^(PREPARACIÓN|PREPARACION)\s+EXAMEN\s+FINAL', re.IGNORECASE)
 PATRON_EXAMEN_FINAL = re.compile(r'^EXAMEN\s+FINAL', re.IGNORECASE)
 PATRON_SMART_ZONE = re.compile(r'^SMART\s+ZONE', re.IGNORECASE)
-PATRON_CLASE = re.compile(r'^CLASE\s+\d+')
+PATRON_CLASE = re.compile(r'^(?:\d+\.\s*)?CLASE\s+\d+', re.IGNORECASE)
 
 
 def _clasificar_item_pendiente(texto):
-    texto_norm = texto.strip().upper()
-    if PATRON_QUIZ.match(texto_norm):
-        return "quiz"
-    if PATRON_PREP_EXAMEN.match(texto_norm):
-        return "preparacion_examen_final"
-    if PATRON_EXAMEN_FINAL.match(texto_norm):
-        return "examen_final"
-    if PATRON_SMART_ZONE.match(texto_norm):
-        return "smart_zone"
-    if PATRON_CLASE.match(texto_norm):
-        return "clase"
-    return "otro"
+    compatibility_names = {
+        ItemType.CLASS: "clase",
+        ItemType.SMART_ZONE: "smart_zone",
+        ItemType.QUIZ_UNIT: "quiz",
+        ItemType.FINAL_EXAM: "examen_final",
+        ItemType.FINAL_EXAM_PREPARATION: "preparacion_examen_final",
+        ItemType.UNKNOWN: "otro",
+    }
+    return compatibility_names[classify_item(texto)]
 
 
 def _separar_items_pendientes(textos):
@@ -118,83 +120,6 @@ async def tomar_screenshots(page, nombre_tarea):
     await page.screenshot(path=path, full_page=True)
     print(f"Evidencia guardada: {path}")
     return path
-
-async def validar_proceso(page, selector):
-    # Verifica si un elemento existe para confirmar que todo va bien
-    try:
-        print(f"Validando presencia de: {selector}")
-        await page.wait_for_selector(selector, timeout=5000)
-        print(f"Elemento {selector} encontrado.")
-        return True
-    except:
-        return False
-    
-
-
-async def cerrar_anuncio_inicial(page, selector):
-    print(f"Buscando elemento para cerrar: {selector}")
-    try:
-        # Uso locator para tener acceso a métodos de visibilidad
-        elemento = page.locator(selector)
-        
-        # Esperamos a que sea visible
-        await elemento.wait_for(state="visible", timeout=5000)
-        
-        # Pausa de seguridad (humana)
-        await page.wait_for_timeout(1000)
-
-        # 2. Intento de clic normal con "force"
-        print(f"Intentando clic forzado en {selector}...")
-        await elemento.click(force=True)
-        print(f"Clic forzado en {selector} realizado.")
-        
-        # 3. Verificación: ¿Sigue ahí? Si sigue, intentamos vía JavaScript
-        await page.wait_for_timeout(1000)
-        if await elemento.is_visible():
-            print("El clic normal falló, intentando vía JavaScript...")
-            await page.evaluate(f"document.querySelector('{selector}').click()")
-
-        print(f"Proceso de cierre para {selector} finalizado.")
-        await page.wait_for_timeout(1500) # Tiempo para que el modal desaparezca visualmente
-            
-    except Exception:
-        # No imprimimos el error completo para no ensuciar la consola 
-        # si el anuncio simplemente nunca salió.
-        print(f"No fue necesario cerrar el elemento {selector}.")
-        
-        
-async def navegar_a_programacion(page):
-    """Función base: Nos deja en la pantalla de 'Programación de Clases'."""
-    print("Navegando al módulo principal de programación...")
-    try:
-        # Clic en el icono inicial de Programación (IMAGE18)
-        await page.click("#IMAGE18")
-        
-        # Esperamos a que la pantalla 'Programación de Clases' cargue
-        # El texto "Programación de Clases" es un buen indicador
-        await page.wait_for_selector("text=Programación de Clases", timeout=10000)
-        print("Estamos en el menú de Programación.")
-        return True
-    except Exception as e:
-        print(f"Error al entrar al módulo: {e}")
-        return False
-
-async def iniciar_programacion_clases(page):
-    """
-    Acción específica: Selecciona el plan y da clic en Iniciar.
-    """
-    print("Ejecutando flujo de: Programar Clases")
-    try:
-        # Seleccionamos el plan (el span que brilla en cian en tu imagen)
-        await page.click("#span_W0030TMPDESART_0001")
-        # Clic en el botón rojo 'Iniciar'
-        await page.click("#W0030BUTTON1")
-        await page.wait_for_load_state("networkidle")
-        return True
-    except Exception as e:
-        print(f"No se pudo iniciar la programación: {e}")
-        return False
-
 
 async def validar_horario_dia_objetivo(page, dias_desde_hoy=1, horarios_habituales=None, nombre_screenshot="horario_dia_objetivo"):
     """
@@ -375,9 +300,18 @@ async def programar_clase_especifica(page, nombre_clase):
     except Exception as e:
         print(f"Error programando la clase en el iframe: {e}")
         return False
-    
-    
-async def programar_clases_pendientes(page, cantidad=2, sede="GUACARI", dias_desde_hoy=1, horarios_objetivo=None):
+
+
+async def programar_clases_pendientes(
+    page,
+    cantidad=2,
+    sede="GUACARI",
+    dias_desde_hoy=1,
+    horarios_objetivo=None,
+    horarios_ocupados=None,
+    profile: ProgrammingProfile | None = None,
+    dry_run=False,
+):
     """
     Busca automáticamente las clases pendientes y programa la cantidad solicitada.
     """
@@ -390,12 +324,16 @@ async def programar_clases_pendientes(page, cantidad=2, sede="GUACARI", dias_des
         "total_encontradas": 0,
         "items_especiales": [],
         "avisos": [],
+        "planificadas": [],
     }
     try:
-        if horarios_objetivo is None:
+        if horarios_objetivo is None and profile is None:
             horarios_objetivo = list(HORARIOS_PERMITIDOS[:cantidad])
 
-        if cantidad > len(horarios_objetivo):
+        horarios_objetivo = horarios_objetivo or []
+        horarios_ocupados = horarios_ocupados or []
+
+        if profile is None and cantidad > len(horarios_objetivo):
             print(
                 f"La cantidad solicitada ({cantidad}) supera los horarios objetivo ({len(horarios_objetivo)})."
             )
@@ -415,15 +353,12 @@ async def programar_clases_pendientes(page, cantidad=2, sede="GUACARI", dias_des
         await page.wait_for_timeout(2000) # Esperamos el refresco AJAX
 
         # 2. Primer pase: clasificar todos los items pendientes
-        todos_items = frame.locator("span[id^='span_vPRONOMPRO']")
-        total_items = await todos_items.count()
+        items_pendientes = await read_pending_items(page, select_filter=False)
+        total_items = len(items_pendientes)
         resultado["total_encontradas"] = total_items
         print(f"Se encontraron {total_items} items pendientes.")
 
-        textos_pendientes = []
-        for j in range(total_items):
-            texto = (await todos_items.nth(j).inner_text()).strip()
-            textos_pendientes.append(texto)
+        textos_pendientes = [item.description for item in items_pendientes]
 
         items_clase, items_especiales = _separar_items_pendientes(textos_pendientes)
         for item in items_especiales:
@@ -431,14 +366,39 @@ async def programar_clases_pendientes(page, cantidad=2, sede="GUACARI", dias_des
 
         resultado["items_especiales"] = items_especiales
 
-        if not items_clase:
+        if profile is not None:
+            target_date = (now_colombia() + timedelta(days=dias_desde_hoy)).date()
+            plan = build_programming_plan(
+                profile=profile,
+                pending_items=items_pendientes,
+                target_date=target_date,
+                occupied_slots=horarios_ocupados,
+            )
+            assignments = plan.assignments
+            for notice in plan.notices:
+                resultado["avisos"].append({
+                    "motivo": "plan_sin_asignaciones",
+                    "detalle": notice,
+                })
+        else:
+            class_items = [item for item in items_pendientes if item.item_type == ItemType.CLASS]
+            assignments = [
+                type("LegacyAssignment", (), {
+                    "item": item,
+                    "slot": horarios_objetivo[index],
+                    "location": sede,
+                })()
+                for index, item in enumerate(class_items[:cantidad])
+            ]
+
+        if not assignments:
             if items_especiales:
-                print("No hay CLASEs pendientes; solo hay items especiales.")
+                print("No hay ítems pendientes compatibles con el perfil.")
                 resultado["avisos"].append({
                     "motivo": "sin_clases_programables",
-                    "detalle": "No se matricularon CLASEs porque solo hay quiz, examen o Smart Zone pendientes.",
+                    "detalle": "Los pendientes encontrados no coinciden con las reglas habilitadas.",
                 })
-            else:
+            elif not resultado["avisos"]:
                 print("No hay clases para programar hoy.")
                 screenshot = await manejar_dia_sin_horarios(page, cerrar_popup=False)
                 resultado["fallos"].append({
@@ -448,38 +408,49 @@ async def programar_clases_pendientes(page, cantidad=2, sede="GUACARI", dias_des
                 })
             return resultado
 
-        # 3. Iteramos para programar la cantidad deseada.
-        # Usamos while + re-consulta del DOM en cada vuelta porque al programar una clase
-        # ésta desaparece de la lista "pendientes", desplazando los índices.
-        programadas = 0
-        clases_ya_intentadas = set()
-        while programadas < cantidad:
-            clases_pendientes = frame.locator("span[id^='span_vPRONOMPRO']")
-            total_disponibles = await clases_pendientes.count()
+        if dry_run:
+            resultado["ok"] = True
+            resultado["planificadas"] = [
+                {
+                    "item_key": assignment.item.key,
+                    "clase": assignment.item.description,
+                    "tipo": assignment.item.item_type.value,
+                    "fecha_objetivo": resultado["fecha_objetivo"],
+                    "hora_objetivo": assignment.slot,
+                    "sede": assignment.location,
+                }
+                for assignment in assignments
+            ]
+            for item in resultado["planificadas"]:
+                print(
+                    f"[SIMULACIÓN] {item['clase']} → {item['fecha_objetivo']} "
+                    f"{item['hora_objetivo']} ({item['sede']})"
+                )
+            return resultado
 
-            clase_actual = None
-            nombre_clase = ""
-            for j in range(total_disponibles):
-                candidato = clases_pendientes.nth(j)
-                texto = (await candidato.inner_text()).strip()
-                if PATRON_CLASE.match(texto):
-                    if texto in clases_ya_intentadas:
-                        continue
-                    clase_actual = candidato
-                    nombre_clase = texto
-                    break
-
+        # 3. Ejecutamos el plan. Cada vuelta vuelve a localizar la fila por su clave
+        # estable porque el DOM cambia después de confirmar una programación.
+        for assignment in assignments:
+            clase_actual = await find_pending_item_locator(frame, assignment.item)
+            nombre_clase = assignment.item.description
+            horario_objetivo = assignment.slot
             if clase_actual is None:
-                print("No se encontraron más clases CLASE para programar.")
-                break
-
-            clases_ya_intentadas.add(nombre_clase)
+                resultado["fallos"].append({
+                    "clase": nombre_clase,
+                    "hora_objetivo": horario_objetivo,
+                    "motivo": "item_pendiente_no_encontrado",
+                    "detalle": f"No se volvió a encontrar la fila {assignment.item.key}.",
+                    "screenshot": "",
+                })
+                if profile is None or profile.stop_on_error:
+                    return resultado
+                continue
 
             print(f"Programando automáticamente: {nombre_clase}")
             await clase_actual.click()
             await tomar_screenshots(
                 page,
-                f"6_clase_seleccionada_dia_{dias_desde_hoy}_{nombre_clase.replace(' ', '_').lower()}",
+                f"6_item_seleccionado_dia_{dias_desde_hoy}_{assignment.item.source_order}",
             )
             await frame.locator("#BUTTON1").dispatch_event("click")
 
@@ -488,10 +459,10 @@ async def programar_clases_pendientes(page, cantidad=2, sede="GUACARI", dias_des
                 await page.wait_for_selector("#gxp1_b", state="visible", timeout=7000)
             except Exception:
                 print("No apareció ningún popup tras hacer clic en Asignar.")
-                screenshot = await tomar_screenshots(page, f"6_sin_popup_clase_{programadas + 1}")
+                screenshot = await tomar_screenshots(page, f"6_sin_popup_item_{assignment.item.source_order}")
                 resultado["fallos"].append({
                     "clase": nombre_clase,
-                    "hora_objetivo": horarios_objetivo[programadas],
+                    "hora_objetivo": horario_objetivo,
                     "motivo": "sin_popup_tras_asignar",
                     "detalle": "No apareció el popup del sistema tras asignar.",
                     "screenshot": screenshot,
@@ -508,18 +479,17 @@ async def programar_clases_pendientes(page, cantidad=2, sede="GUACARI", dias_des
                 screenshot = await tomar_screenshots(page, "6_fuera_de_horario")
                 resultado["fallos"].append({
                     "clase": nombre_clase,
-                    "hora_objetivo": horarios_objetivo[programadas],
+                    "hora_objetivo": horario_objetivo,
                     "motivo": "fuera_de_horario_programacion",
                     "detalle": f"Popup recibido: {titulo_popup}",
                     "screenshot": screenshot,
                 })
                 return resultado
 
-            horario_objetivo = horarios_objetivo[programadas]
             print(f"Horario objetivo para esta clase: {horario_objetivo}")
             seleccion = await seleccionar_horario_especifico(
                 page,
-                sede=sede,
+                sede=assignment.location,
                 horario_objetivo=horario_objetivo,
                 dias_desde_hoy=dias_desde_hoy,
             )
@@ -532,7 +502,9 @@ async def programar_clases_pendientes(page, cantidad=2, sede="GUACARI", dias_des
                     "detalle": seleccion.get("detalle", "No fue posible seleccionar el horario."),
                     "screenshot": seleccion.get("screenshot"),
                 })
-                return resultado
+                if profile is None or profile.stop_on_error:
+                    return resultado
+                continue
 
             resultado["programadas"].append({
                 "clase": nombre_clase,
@@ -541,9 +513,7 @@ async def programar_clases_pendientes(page, cantidad=2, sede="GUACARI", dias_des
                 "fila_seleccionada": seleccion.get("fila_texto", ""),
             })
             
-            programadas += 1
-       
-        resultado["ok"] = len(resultado["programadas"]) == cantidad
+        resultado["ok"] = len(resultado["programadas"]) == len(assignments)
         return resultado
 
     except Exception as e:
@@ -567,22 +537,19 @@ async def seleccionar_horario_especifico(page, sede="GUACARI", horario_objetivo=
         # Esperamos a que el iframe cargue su contenido antes de interactuar
         await frame_lvl1.locator("select").first.wait_for(state="visible", timeout=15000)
 
-        # 1. Seleccionar la Sede (best-effort: si falla, continuamos)
-        print(f"Seleccionando sede: {sede}")
-        try:
-            sede_select = frame_lvl1.locator(
-                "select[id$='vSEDEID'], select[id*='SEDE'], select[name*='SEDE']"
-            )
-            if await sede_select.count() > 0:
-                await sede_select.first.select_option(label=sede)
+        # 1. Seleccionar la sede configurada. Nunca se continúa silenciosamente
+        # con otra sede porque produciría una asignación válida pero incorrecta.
+        if sede:
+            print(f"Seleccionando sede: {sede}")
+            sede_select = await find_location_select(frame_lvl1)
+            if sede_select is not None:
+                await sede_select.select_option(label=sede)
                 await page.wait_for_timeout(1500)
                 print(f"Sede '{sede}' seleccionada.")
             else:
-                print("No se encontró el selector de sede, continuando con la sede actual.")
-        except Exception as e:
-            print(f"No se pudo seleccionar sede (continuando con la actual): {e}")
+                raise RuntimeError(f"No se encontró el selector requerido para la sede '{sede}'.")
 
-        # 2. Seleccionar el día objetivo (mañana).
+        # 2. Seleccionar el día objetivo dentro del horizonte configurado.
         # El dropdown muestra etiquetas con fecha completa, ej: "Viernes 15/05/26"
         # por lo que incluimos ese formato como candidato principal.
         # dia_seleccionado=True significa que el dropdown ya filtró por fecha,

@@ -10,10 +10,13 @@ Automatización con Playwright para programar clases en la plataforma Smart con 
 - Programación estricta por horario permitido:
   - 18:00 19:30 (primera clase)
   - 19:30 21:00 (segunda clase)
-- Validación por fecha objetivo (mañana por defecto).
+- Horizonte futuro configurable entre 1 y 14 días.
 - Captura de screenshots ante errores.
 - Resumen final a Telegram (incluye evidencia si hubo error).
 - Ejecución local y con GitHub Actions (cron + manual).
+- Perfil recurrente para tipos, prioridades, sedes y horarios.
+- Simulación segura antes de confirmar programaciones.
+- Interfaz web para editar el perfil y consultar pendientes.
 
 ## Estructura del proyecto
 
@@ -26,6 +29,18 @@ utils/
   calendar_manager.py
   credentials.py
   telegram_notifier.py
+  item_types.py
+  planner.py
+  profile.py
+  navigation.py
+  pending_items.py
+config/
+  default_profile.json
+services/
+  discovery_service.py
+web/
+  index.html
+web_app.py
 .github/workflows/automation.yml
 ```
 
@@ -64,6 +79,70 @@ TELEGRAM_CHAT_ID=tu_chat_id
 python main.py
 ```
 
+La automatización consulta el horario de hoy como referencia y procesa los días futuros
+guardados en el perfil. Las reglas se cargan desde `config/default_profile.json` o desde
+la variable `PROGRAMMING_PROFILE_JSON` en GitHub Actions.
+
+### Simular sin confirmar
+
+```powershell
+python main.py --profile config/default_profile.json --dry-run
+```
+
+La simulación inicia sesión, consulta el horario y los pendientes, pero no confirma
+ninguna asignación.
+
+## Perfil de programación
+
+El perfil permite configurar por tipo de ítem:
+
+- Activación.
+- Plan de estudios visible en Smart (`study_plan`).
+- Sede.
+- Días permitidos (`0=lunes`, `6=domingo`).
+- Franjas preferidas.
+- Cantidad máxima por día.
+- Prioridad entre tipos.
+- Política ante un horario parcialmente ocupado.
+- Horizonte de días futuros.
+- Reglas independientes por grupo descubierto (`CLASE`, `SMART ZONE`, etc.).
+
+Los tipos soportados son `class`, `smart_zone`, `quiz_unit`, `final_exam` y
+`final_exam_preparation`.
+
+`partial_occupancy_policy` acepta:
+
+- `fill_free_slots`: usa las franjas configuradas que continúen libres.
+- `skip_entire_day`: omite el día objetivo si alguna franja configurada está ocupada.
+
+## Aplicación web
+
+Instala las dependencias y ejecuta:
+
+```powershell
+uvicorn web_app:app --reload
+```
+
+Abre `http://127.0.0.1:8000`. Desde allí puedes:
+
+- Guardar usuario y contraseña en el Administrador de credenciales de Windows.
+- Explorar los planes de estudio disponibles para cada cuenta.
+- Consultar y agrupar todos los pendientes reales sin programarlos.
+- Programar clases con una regla principal y activar opcionalmente una regla independiente para Smart Zone.
+- Elegir sedes reales consultadas directamente desde Smart.
+- Configurar visualmente horizonte, días, sede, horas y máximo para clases y Smart Zone.
+- Consultar sedes, días y horarios publicados por Smart sin confirmar la asignación.
+- Ejecutar una simulación.
+- Confirmar una ejecución real.
+- Publicar el perfil en GitHub y activar o detener su ejecución automática.
+
+La contraseña no se guarda en el perfil ni en el repositorio. En Windows se almacena
+con Credential Manager; `.env` y variables de entorno continúan disponibles como fallback.
+
+Para publicar desde la web configura un token fino de GitHub con permiso de escritura
+sobre Actions Variables y el repositorio en formato `propietario/repositorio`. El token
+se conserva en el Administrador de credenciales de Windows, nunca en el perfil.
+
 ## Configurar Telegram
 
 1. En Telegram, abre `@BotFather`.
@@ -82,11 +161,9 @@ https://api.telegram.org/bot<TU_TOKEN>/getUpdates
 
 El workflow está en `.github/workflows/automation.yml`.
 
-- `schedule`: 11:00 UTC (6:00 AM Colombia), solo los días previos a clase.
-  - Domingo: programa clases del lunes.
-  - Lunes: programa clases del martes.
-  - Miércoles: programa clases del jueves.
-  - Jueves: programa clases del viernes.
+- `schedule`: cada 30 minutos.
+- La variable de repositorio `PROGRAMMING_PROFILE_JSON` contiene el perfil publicado por la web.
+- El perfil decide qué días futuros, grupos, sedes y horarios se procesan.
 - `workflow_dispatch`: ejecución manual.
 
 ### Secrets requeridos en GitHub
@@ -97,6 +174,9 @@ Configura en `Settings > Secrets and variables > Actions`:
 - `SMART_PASSWORD`
 - `TELEGRAM_BOT_TOKEN`
 - `TELEGRAM_CHAT_ID`
+
+La web crea o actualiza automáticamente la variable `PROGRAMMING_PROFILE_JSON`. Para
+hacerlo necesita localmente un token de GitHub con acceso de escritura a Actions Variables.
 
 ## Flujo de reporte
 
@@ -118,3 +198,5 @@ Al finalizar la ejecución se envía:
 - El sistema puede bloquear programación fuera de 6:00 a.m. a 10:00 p.m.
 - El script detecta popups de restricción y aborta de forma controlada.
 - Si no hay match exacto de fecha/hora permitida, no programa para evitar asignaciones inválidas.
+- GitHub Actions aplica el perfil publicado por la UI; si la variable no existe usa
+  `config/default_profile.json` como respaldo.
