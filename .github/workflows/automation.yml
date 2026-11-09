@@ -2,8 +2,8 @@ name: Automate Classes
 
 on:
   schedule:
-    # GitHub puede retrasar algunos minutos los cron. El perfil decide qué días y reglas usar.
-    - cron: "*/30 * * * *"
+    # 11:05 UTC equivale a 06:05 en Colombia (UTC-5).
+    - cron: "5 11 * * *"
   workflow_dispatch:
 
 concurrency:
@@ -15,7 +15,8 @@ jobs:
     # Playwright 1.59 no soporta todavía el runner ubuntu-26.04 al que
     # puede apuntar ubuntu-latest. Fijamos una imagen compatible y estable.
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    # Permite hasta tres intentos técnicos separados por diez minutos.
+    timeout-minutes: 90
     env:
       TZ: America/Bogota
       SMART_LOGIN_URL: https://schoolpack.smart.edu.co/idiomas/alumnos.aspx

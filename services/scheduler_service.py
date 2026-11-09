@@ -6,7 +6,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from zoneinfo import ZoneInfo
 
-from main import workflow_principal
+from main import workflow_programado_con_reintentos
 from services.automation_runtime import automation_lock
 from services.playwright_runner import run_playwright_task
 from utils.profile import load_profile
@@ -39,7 +39,7 @@ async def scheduled_run():
     save_scheduler_state(state)
     try:
         async with automation_lock:
-            report = await run_playwright_task(workflow_principal, None, False, True)
+            report = await run_playwright_task(workflow_programado_con_reintentos, None, False)
             state["last_status"] = report.get("estado", "unknown")
     except Exception as error:
         state["last_status"] = "error"

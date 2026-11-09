@@ -58,6 +58,7 @@ def construir_resumen_telegram(reporte, inicio, fin):
     fallos = reporte.get("fallos", [])
     total_encontradas = reporte.get("total_encontradas", 0)
     motivo = reporte.get("motivo", "")
+    intentos = reporte.get("intentos", 1)
 
     lineas = [
         "🤖 AUTOMATE-CLASSES",
@@ -74,7 +75,11 @@ def construir_resumen_telegram(reporte, inicio, fin):
         f"- Programadas: {len(programadas)}",
         f"- Planificadas (simulación): {len(planificadas)}",
         f"- Fallos: {len(fallos)}",
+        f"- Intentos técnicos: {intentos}",
     ]
+
+    if reporte.get("recuperado_tras_reintentos"):
+        lineas.extend(["", "🔄 La ejecución se recuperó después de un error técnico temporal."])
 
     if motivo:
         lineas.extend(["", f"🧠 Motivo principal: {motivo}"])

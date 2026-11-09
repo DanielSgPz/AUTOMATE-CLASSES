@@ -96,7 +96,7 @@
   ],
   "max_items_per_day": 2,
   "default_location": "GUACARI",
-  "run_time": "06:00",
+  "run_time": "06:05",
   "automation_enabled": true,
   "group_rules": {
     "CLASE": {

@@ -1,12 +1,17 @@
 import unittest
 import json
 import os
-from datetime import date
+from datetime import date, datetime
 from unittest.mock import patch
 
 from utils.item_types import ItemType, classify_item, derive_item_group
 from utils.planner import PendingItem, build_programming_plan
 from utils.profile import ProgrammingProfile, load_profile
+from utils.execution_policy import (
+    is_retryable_technical_failure,
+    is_within_programming_window,
+    target_offsets_for_run,
+)
 
 
 def _profile(policy="fill_free_slots"):
@@ -193,6 +198,42 @@ class ProfileTest(unittest.TestCase):
 
         self.assertEqual(profile.name, "github")
         self.assertEqual(profile.target_day_offsets, (1, 2))
+
+
+class ExecutionPolicyTest(unittest.TestCase):
+    def test_allows_only_smart_programming_window(self):
+        self.assertFalse(is_within_programming_window(datetime(2026, 11, 9, 5, 59)))
+        self.assertTrue(is_within_programming_window(datetime(2026, 11, 9, 6, 0)))
+        self.assertTrue(is_within_programming_window(datetime(2026, 11, 9, 21, 59)))
+        self.assertFalse(is_within_programming_window(datetime(2026, 11, 9, 22, 0)))
+
+    def test_scheduled_run_checks_today_and_tomorrow(self):
+        profile = ProgrammingProfile.from_dict({
+            "name": "scheduled",
+            "target_day_offsets": [1, 2, 3],
+        })
+        self.assertEqual(target_offsets_for_run(profile, scheduled=True), (0, 1))
+        self.assertEqual(target_offsets_for_run(profile, scheduled=False), (1, 2, 3))
+
+    def test_retries_only_technical_failures(self):
+        technical = {
+            "estado": "error",
+            "motivo": "validacion_login_fallida",
+            "fallos": [],
+        }
+        business = {
+            "estado": "error",
+            "motivo": "sin_cupo",
+            "fallos": [{"motivo": "sin_cupo"}],
+        }
+        complete = {
+            "estado": "exito",
+            "motivo": "horario_completo_para_dias_objetivo",
+            "fallos": [],
+        }
+        self.assertTrue(is_retryable_technical_failure(technical))
+        self.assertFalse(is_retryable_technical_failure(business))
+        self.assertFalse(is_retryable_technical_failure(complete))
 
 
 if __name__ == "__main__":

@@ -401,7 +401,7 @@ async def programar_clases_pendientes(
             elif not resultado["avisos"]:
                 print("No hay clases para programar hoy.")
                 screenshot = await manejar_dia_sin_horarios(page, cerrar_popup=False)
-                resultado["fallos"].append({
+                resultado["avisos"].append({
                     "motivo": "sin_clases_pendientes",
                     "detalle": "No se encontraron clases pendientes para el día objetivo.",
                     "screenshot": screenshot,

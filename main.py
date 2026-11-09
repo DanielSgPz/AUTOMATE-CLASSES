@@ -13,6 +13,15 @@ from utils.navigation import cerrar_anuncio_inicial, iniciar_programacion_clases
 from utils.telegram_notifier import enviar_resumen_telegram
 from utils.timezone import now_colombia
 from utils.profile import load_profile
+from utils.execution_policy import (
+    is_retryable_technical_failure,
+    is_within_programming_window,
+    target_offsets_for_run,
+)
+
+
+MAX_TECHNICAL_ATTEMPTS = 3
+TECHNICAL_RETRY_DELAY_SECONDS = 10 * 60
 
 
 async def crear_evidencia_omitido(nombre_archivo, titulo, detalle):
@@ -73,11 +82,11 @@ async def crear_evidencia_omitido(nombre_archivo, titulo, detalle):
     return path
 
 
-async def workflow_principal(profile_path=None, dry_run=False, scheduled=False):
+async def workflow_principal(profile_path=None, dry_run=False, scheduled=False, notify=True):
     profile = load_profile(profile_path)
-    dias_a_procesar = list(profile.target_day_offsets)
+    dias_a_procesar = list(target_offsets_for_run(profile, scheduled))
     inicio_ejecucion = now_colombia()
-    telegram_cfg = load_telegram_config()
+    telegram_cfg = load_telegram_config() if notify else None
 
     dias_validos = []
     dias_permitidos = profile.enabled_weekdays()
@@ -113,11 +122,20 @@ async def workflow_principal(profile_path=None, dry_run=False, scheduled=False):
         reporte["motivo"] = "automatizacion_desactivada"
         return reporte
 
+    if scheduled and not is_within_programming_window(inicio_ejecucion):
+        reporte["estado"] = "omitido"
+        reporte["motivo"] = "fuera_ventana_programacion"
+        reporte["avisos"].append({
+            "motivo": "fuera_ventana_programacion",
+            "detalle": "Smart solo permite matrículas entre las 06:00 y las 22:00, hora Colombia.",
+        })
+        return reporte
+
     try:
         if not dias_validos:
             reporte["estado"] = "omitido"
             evaluacion_cero = evaluar_programacion_hoy(
-                dias_anticipacion=profile.target_day_offsets[0],
+                dias_anticipacion=dias_a_procesar[0],
                 dias_permitidos=dias_permitidos,
             )
             reporte["motivo"] = evaluacion_cero.get("motivo", "sin_dias_validos")
@@ -173,21 +191,6 @@ async def workflow_principal(profile_path=None, dry_run=False, scheduled=False):
                 return reporte
 
             await tomar_screenshots(page, "4_navegar_programacion_iniciado")
-
-            # El día actual se consulta como contexto y evidencia, pero nunca se programa.
-            slots_hoy = profile.all_enabled_slots()
-            if slots_hoy:
-                validacion_hoy = await validar_horario_dia_objetivo(
-                    page,
-                    dias_desde_hoy=0,
-                    horarios_habituales=slots_hoy,
-                    nombre_screenshot="5_horario_dia_actual",
-                )
-                if validacion_hoy.get("ok"):
-                    reporte["horario_dia_actual"] = {
-                        "ocupados": validacion_hoy.get("horarios_ocupados", []),
-                        "faltantes": validacion_hoy.get("horarios_faltantes", []),
-                    }
 
             # --- PASO 4: ITERAR SOBRE DÍAS VÁLIDOS ---
             for idx, dias_anticipacion in enumerate(dias_validos):
@@ -344,8 +347,74 @@ async def workflow_principal(profile_path=None, dry_run=False, scheduled=False):
         print(f"Error no controlado en workflow_principal: {e}")
     finally:
         fin_ejecucion = now_colombia()
-        enviar_resumen_telegram(telegram_cfg, reporte, inicio_ejecucion, fin_ejecucion)
+        if notify:
+            enviar_resumen_telegram(telegram_cfg, reporte, inicio_ejecucion, fin_ejecucion)
     return reporte
+
+
+def _merge_attempt_reports(reports: list[dict]) -> dict:
+    final_report = dict(reports[-1])
+    programmed = []
+    seen = set()
+    for report in reports:
+        for item in report.get("programadas", []):
+            key = (
+                item.get("clase"),
+                item.get("fecha_objetivo"),
+                item.get("hora_objetivo"),
+            )
+            if key not in seen:
+                seen.add(key)
+                programmed.append(item)
+
+    final_report["programadas"] = programmed
+    final_report["intentos"] = len(reports)
+    final_report["reintentos"] = max(0, len(reports) - 1)
+    final_report["errores_tecnicos_previos"] = [
+        {
+            "intento": index + 1,
+            "motivo": report.get("motivo", "error_tecnico"),
+        }
+        for index, report in enumerate(reports[:-1])
+        if is_retryable_technical_failure(report)
+    ]
+    if len(reports) > 1 and reports[-1].get("estado") == "exito":
+        final_report["recuperado_tras_reintentos"] = True
+    return final_report
+
+
+async def workflow_programado_con_reintentos(
+    profile_path=None,
+    dry_run=False,
+    max_attempts=MAX_TECHNICAL_ATTEMPTS,
+    retry_delay_seconds=TECHNICAL_RETRY_DELAY_SECONDS,
+):
+    start = now_colombia()
+    telegram_cfg = load_telegram_config()
+    reports = []
+
+    for attempt in range(1, max_attempts + 1):
+        print(f"Intento técnico {attempt} de {max_attempts}.")
+        report = await workflow_principal(
+            profile_path=profile_path,
+            dry_run=dry_run,
+            scheduled=True,
+            notify=False,
+        )
+        reports.append(report)
+
+        if not is_retryable_technical_failure(report) or attempt == max_attempts:
+            break
+
+        print(
+            f"Error técnico recuperable ({report.get('motivo')}). "
+            f"Nuevo intento en {retry_delay_seconds // 60} minutos."
+        )
+        await asyncio.sleep(retry_delay_seconds)
+
+    final_report = _merge_attempt_reports(reports)
+    enviar_resumen_telegram(telegram_cfg, final_report, start, now_colombia())
+    return final_report
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Automatización configurable de Smart")
@@ -361,8 +430,16 @@ if __name__ == "__main__":
         help="Respeta el interruptor automation_enabled del perfil",
     )
     args = parser.parse_args()
-    asyncio.run(workflow_principal(
-        profile_path=args.profile,
-        dry_run=args.dry_run,
-        scheduled=args.scheduled,
-    ))
+    if args.scheduled:
+        final_report = asyncio.run(workflow_programado_con_reintentos(
+            profile_path=args.profile,
+            dry_run=args.dry_run,
+        ))
+    else:
+        final_report = asyncio.run(workflow_principal(
+            profile_path=args.profile,
+            dry_run=args.dry_run,
+            scheduled=False,
+        ))
+    if final_report.get("estado") in {"error", "parcial"}:
+        raise SystemExit(1)

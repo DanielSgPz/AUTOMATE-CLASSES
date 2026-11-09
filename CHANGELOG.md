@@ -7,6 +7,7 @@
 - La interfaz unifica la selección: `CLASE` usa las reglas principales y solo `SMART ZONE` muestra reglas independientes.
 - Las sedes se consultan desde Smart y se muestran en listas seleccionables para cada programación.
 - Quiz, exámenes y videos se muestran como pendientes informativos, no como opciones automáticas.
+- GitHub Actions se ejecuta diariamente a las 06:05, revisa hoy y mañana y limita los reintentos a errores técnicos.
 - El perfil se publica en `PROGRAMMING_PROFILE_JSON` mediante GitHub API.
 - GitHub Actions consulta el perfil cada 30 minutos y respeta el interruptor de automatización.
 
