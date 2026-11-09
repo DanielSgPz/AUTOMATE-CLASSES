@@ -1,13 +1,13 @@
 # AUTOMATE-CLASSES
 
-Automatización con Playwright para programar clases en la plataforma Smart con reglas estrictas de fecha/horario, captura de evidencias y reporte final por Telegram.
+Automatización con Playwright para programar clases en la plataforma Smart con reglas estrictas de fecha/horario, captura de evidencias y reporte final por Telegram, lo hice para mi y por mi, para que no se me olvide matricular las clases, si alguien llega averlo y necesitarlo contacteme.
 
 ## Características
 
 - Login automático en Smart.
 - Navegación al módulo de programación.
 - Filtro de clases pendientes.
-- Programación estricta por horario permitido:
+- Programación estricta por horario permitido, porque es el que tengo disponible:
   - 18:00 19:30 (primera clase)
   - 19:30 21:00 (segunda clase)
 - Horizonte futuro configurable entre 1 y 14 días.
@@ -49,7 +49,7 @@ web_app.py
 - Python 3.11+
 - Playwright
 - Acceso a la plataforma Smart
-- Bot de Telegram (opcional pero recomendado)
+- Bot de Telegram (opcional pero super recomendado para saber en que clase estoy)
 
 ## Configuración local
 
@@ -117,13 +117,13 @@ Los tipos soportados son `class`, `smart_zone`, `quiz_unit`, `final_exam` y
 
 ## Aplicación web
 
-Instala las dependencias y ejecuta:
+Instalar las dependencias y ejecutar:
 
 ```powershell
 uvicorn web_app:app --reload
 ```
 
-Abre `http://127.0.0.1:8000`. Desde allí puedes:
+Abrir `http://127.0.0.1:8000`. Desde allí se puede:
 
 - Guardar usuario y contraseña en el Administrador de credenciales de Windows.
 - Explorar los planes de estudio disponibles para cada cuenta.
@@ -143,9 +143,11 @@ Para publicar desde la web configura un token fino de GitHub con permiso de escr
 sobre Actions Variables y el repositorio en formato `propietario/repositorio`. El token
 se conserva en el Administrador de credenciales de Windows, nunca en el perfil.
 
+Esto se podria mejorar, pero cuando ud haga su programador lo pone a corerer como quiera. 
+
 ## Configurar Telegram
 
-1. En Telegram, abre `@BotFather`.
+1. En Telegram, se abre `@BotFather`.
 2. Ejecuta `/newbot` y crea el bot.
 3. Guarda el token entregado por BotFather.
 4. Abre chat con tu bot y envía `/start`.
@@ -189,13 +191,13 @@ Al finalizar la ejecución se envía:
 
 ## Seguridad
 
-- No subas `.env` al repositorio.
-- Usa `.env.example` solo como plantilla.
+- No subir el `.env` al repositorio.
+- Usar `.env.example` solo como plantilla.
 - Las credenciales en GitHub deben ir únicamente en Secrets.
 
 ## Notas operativas
 
-- El sistema puede bloquear programación fuera de 6:00 a.m. a 10:00 p.m.
+- El sistema bloquea la programación fuera de 6:00 a.m. a 10:00 p.m.
 - El script detecta popups de restricción y aborta de forma controlada.
 - Si no hay match exacto de fecha/hora permitida, no programa para evitar asignaciones inválidas.
 - GitHub Actions aplica el perfil publicado por la UI; si la variable no existe usa
