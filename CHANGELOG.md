@@ -9,7 +9,7 @@
 - Quiz, exámenes y videos se muestran como pendientes informativos, no como opciones automáticas.
 - GitHub Actions se ejecuta diariamente a las 06:05, revisa hoy y mañana y limita los reintentos a errores técnicos.
 - El perfil se publica en `PROGRAMMING_PROFILE_JSON` mediante GitHub API.
-- GitHub Actions consulta el perfil cada 30 minutos y respeta el interruptor de automatización.
+- GitHub Actions respeta el interruptor de automatización y evita ejecuciones repetitivas durante el día.
 
 ## [2026-10-31] Perfiles configurables y planificador compartido
 

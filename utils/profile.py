@@ -74,7 +74,7 @@ class ProgrammingProfile:
     preferred_slots: tuple[str, ...] = ("18:00 19:30", "19:30 21:00")
     max_items_per_day: int = 2
     default_location: str = "GUACARI"
-    run_time: str = "06:00"
+    run_time: str = "06:05"
     automation_enabled: bool = True
     group_rules: dict[str, ItemRule] = field(default_factory=dict)
 
@@ -120,7 +120,7 @@ class ProgrammingProfile:
             ),
             "max_per_day": data.get("max_items_per_day", 2),
         })
-        run_time = str(data.get("run_time", "06:00"))
+        run_time = str(data.get("run_time", "06:05"))
         try:
             datetime.strptime(run_time, "%H:%M")
         except ValueError as error:

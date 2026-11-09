@@ -165,9 +165,9 @@ https://api.telegram.org/bot<TU_TOKEN>/getUpdates
 
 El workflow está en `.github/workflows/automation.yml`.
 
-- `schedule`: cada 30 minutos.
+- `schedule`: una vez al día a las 06:05, hora Colombia.
 - La variable de repositorio `PROGRAMMING_PROFILE_JSON` contiene el perfil publicado por la web.
-- El perfil decide qué días futuros, grupos, sedes y horarios se procesan.
+- La ejecución automática revisa hoy y mañana; el perfil decide los días, grupos, sedes y horarios permitidos.
 - `workflow_dispatch`: ejecución manual.
 
 ### Secrets requeridos en GitHub
