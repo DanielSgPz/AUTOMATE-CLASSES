@@ -10,7 +10,6 @@ RETRYABLE_TECHNICAL_REASONS = {
     "excepcion_no_controlada",
     "excepcion_programacion",
     "excepcion_seleccion_horario",
-    "item_pendiente_no_encontrado",
     "no_fue_posible_iniciar_modulo_programacion",
     "no_fue_posible_navegar_a_programacion",
     "popup_no_cerro_tras_confirmar",

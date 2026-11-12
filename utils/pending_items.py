@@ -1,3 +1,5 @@
+import asyncio
+
 from utils.item_types import classify_item, derive_item_group
 from utils.planner import PendingItem
 
@@ -62,6 +64,38 @@ async def _page_signature(frame):
     return "|".join(values)
 
 
+async def _wait_for_page_change(frame, previous_signature, timeout_ms=8000):
+    """Espera el refresco AJAX de GeneXus después de usar el paginador."""
+    attempts = max(1, timeout_ms // 200)
+    for _ in range(attempts):
+        await asyncio.sleep(0.2)
+        current_signature = await _page_signature(frame)
+        if current_signature and current_signature != previous_signature:
+            return current_signature
+    return None
+
+
+async def _navigate_pager(frame, direction):
+    previous_signature = await _page_signature(frame)
+    if not await _click_pager(frame, direction):
+        return False
+    return await _wait_for_page_change(frame, previous_signature) is not None
+
+
+async def reset_pending_items_to_first_page(frame):
+    """Vuelve al inicio del inventario y espera a que la grilla quede estable."""
+    return await _navigate_pager(frame, "first")
+
+
+async def visible_pending_item_keys(frame, limit=12):
+    locators = frame.locator("span[id^='span_vPRONOMPRO']")
+    keys = []
+    for index in range(min(await locators.count(), limit)):
+        current = await construir_item_pendiente(locators.nth(index), index)
+        keys.append(current.key)
+    return keys
+
+
 async def read_pending_items(page, select_filter=True):
     """Lee todas las páginas del inventario pendiente sin programar ninguna."""
     frame = page.frame_locator("#gxp0_ifrm")
@@ -87,14 +121,14 @@ async def read_pending_items(page, select_filter=True):
                 seen_items.add(item.key)
                 source_order += 1
 
-        if not await _click_pager(frame, "next"):
+        if not await _navigate_pager(frame, "next"):
             break
-        await page.wait_for_timeout(1200)
+    await reset_pending_items_to_first_page(frame)
     return items
 
 
 async def find_pending_item_locator(frame, item):
-    await _click_pager(frame, "first")
+    await reset_pending_items_to_first_page(frame)
     seen_pages = set()
     for _ in range(50):
         signature = await _page_signature(frame)
@@ -111,6 +145,6 @@ async def find_pending_item_locator(frame, item):
             if item.key.startswith("row:") and current.description == item.description:
                 return locator
 
-        if not await _click_pager(frame, "next"):
+        if not await _navigate_pager(frame, "next"):
             break
     return None

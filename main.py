@@ -285,8 +285,10 @@ async def workflow_principal(profile_path=None, dry_run=False, scheduled=False, 
                 items_especiales = resultado_programacion.get("items_especiales", [])
                 if items_especiales:
                     reporte["items_especiales"].extend(items_especiales)
-                    for item in items_especiales:
-                        print(f"  [{item['tipo']}] {item['nombre']} — no programable automáticamente")
+                    print(
+                        f"{len(items_especiales)} grupos de ítems informativos detectados; "
+                        "no se programarán automáticamente."
+                    )
 
                 # Cerrar popup de programación antes del siguiente día
                 await cerrar_anuncio_inicial(page, "#gxp0_cls")

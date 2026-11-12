@@ -1,5 +1,14 @@
 # Historial de cambios
 
+## [2026-11-12] Paginación estable del inventario
+
+- La navegación entre páginas espera el refresco AJAX de GeneXus antes de leer filas.
+- El inventario vuelve a la primera página antes de localizar la clase planificada.
+- Si una fila cambia, el sistema relee pendientes y recalcula el plan inmediatamente.
+- Los fallos de localización incluyen screenshot y claves visibles para diagnóstico.
+- Telegram agrupa los ítems informativos repetidos y muestra su cantidad.
+- GitHub Actions registra la expresión cron y las horas UTC/Colombia del disparo.
+
 ## [2026-11-07] Perfil web configurable y sincronizado con GitHub
 
 - La web guarda un horizonte de 1 a 14 días futuros.

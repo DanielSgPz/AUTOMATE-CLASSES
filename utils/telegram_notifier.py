@@ -112,9 +112,17 @@ def construir_resumen_telegram(reporte, inicio, fin):
             "examen_final": "📝 Examen final",
             "smart_zone": "🎯 Smart Zone",
         }
+        grouped_special_items = {}
         for item in items_especiales:
+            key = (item["tipo"], item["nombre"])
+            if key not in grouped_special_items:
+                grouped_special_items[key] = {**item, "cantidad": 0}
+            grouped_special_items[key]["cantidad"] += item.get("cantidad", 1)
+        for item in grouped_special_items.values():
             etiqueta = ETIQUETAS.get(item["tipo"], item["tipo"])
-            lineas.append(f"   📌 {etiqueta}: {item['nombre']}")
+            cantidad = item.get("cantidad", 1)
+            suffix = f" ×{cantidad}" if cantidad > 1 else ""
+            lineas.append(f"   📌 {etiqueta}: {item['nombre']}{suffix}")
 
     if programadas:
         lineas.extend(["", "✅ Clases programadas"])

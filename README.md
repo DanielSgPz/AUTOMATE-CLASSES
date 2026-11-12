@@ -133,6 +133,7 @@ Abrir `http://127.0.0.1:8000`. Desde allí se puede:
 - Configurar visualmente horizonte, días, sede, horas y máximo para clases y Smart Zone.
 - Ejecutar una vez al día a las 06:05 (hora Colombia), revisando hoy y mañana.
 - Reintentar hasta tres veces, cada diez minutos, únicamente ante errores técnicos temporales.
+- Esperar cada refresco AJAX al recorrer pendientes paginados antes de seleccionar una clase.
 - Consultar sedes, días y horarios publicados por Smart sin confirmar la asignación.
 - Ejecutar una simulación.
 - Confirmar una ejecución real.

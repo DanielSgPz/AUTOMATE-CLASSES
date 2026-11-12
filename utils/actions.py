@@ -3,7 +3,11 @@ import re
 from datetime import timedelta
 
 from utils.item_types import ItemType, classify_item
-from utils.pending_items import find_pending_item_locator, read_pending_items
+from utils.pending_items import (
+    find_pending_item_locator,
+    read_pending_items,
+    visible_pending_item_keys,
+)
 from utils.planner import build_programming_plan
 from utils.profile import ProgrammingProfile
 from utils.timezone import now_colombia
@@ -360,11 +364,20 @@ async def programar_clases_pendientes(
 
         textos_pendientes = [item.description for item in items_pendientes]
 
-        items_clase, items_especiales = _separar_items_pendientes(textos_pendientes)
-        for item in items_especiales:
-            print(f"Item especial detectado: [{item['tipo']}] {item['nombre']}")
-
+        items_clase, raw_special_items = _separar_items_pendientes(textos_pendientes)
+        special_items = {}
+        for item in raw_special_items:
+            key = (item["tipo"], item["nombre"])
+            if key not in special_items:
+                special_items[key] = {**item, "cantidad": 0}
+            special_items[key]["cantidad"] += 1
+        items_especiales = list(special_items.values())
         resultado["items_especiales"] = items_especiales
+        if items_especiales:
+            print(
+                f"Se detectaron {len(raw_special_items)} ítems informativos "
+                f"agrupados en {len(items_especiales)} descripciones."
+            )
 
         if profile is not None:
             target_date = (now_colombia() + timedelta(days=dias_desde_hoy)).date()
@@ -435,12 +448,47 @@ async def programar_clases_pendientes(
             nombre_clase = assignment.item.description
             horario_objetivo = assignment.slot
             if clase_actual is None:
+                print(
+                    f"La fila {assignment.item.key} no apareció en el primer recorrido. "
+                    "Actualizando el inventario y recalculando el plan."
+                )
+                refreshed_items = await read_pending_items(page, select_filter=False)
+                resultado["total_encontradas"] = len(refreshed_items)
+                refreshed_plan = build_programming_plan(
+                    profile=profile,
+                    pending_items=refreshed_items,
+                    target_date=(now_colombia() + timedelta(days=dias_desde_hoy)).date(),
+                    occupied_slots=horarios_ocupados + [
+                        item["hora_objetivo"] for item in resultado["programadas"]
+                    ],
+                ) if profile is not None else None
+                replacement = next(
+                    (
+                        candidate for candidate in (refreshed_plan.assignments if refreshed_plan else [])
+                        if candidate.slot == horario_objetivo
+                    ),
+                    None,
+                )
+                if replacement is not None:
+                    assignment = replacement
+                    nombre_clase = assignment.item.description
+                    clase_actual = await find_pending_item_locator(frame, assignment.item)
+
+            if clase_actual is None:
+                visible_keys = await visible_pending_item_keys(frame)
+                screenshot = await tomar_screenshots(
+                    page,
+                    f"6_item_no_encontrado_{assignment.item.source_order}",
+                )
                 resultado["fallos"].append({
                     "clase": nombre_clase,
                     "hora_objetivo": horario_objetivo,
                     "motivo": "item_pendiente_no_encontrado",
-                    "detalle": f"No se volvió a encontrar la fila {assignment.item.key}.",
-                    "screenshot": "",
+                    "detalle": (
+                        f"No se volvió a encontrar la fila {assignment.item.key} después de "
+                        f"actualizar el inventario. Claves visibles: {', '.join(visible_keys) or '(ninguna)'}"
+                    ),
+                    "screenshot": screenshot,
                 })
                 if profile is None or profile.stop_on_error:
                     return resultado

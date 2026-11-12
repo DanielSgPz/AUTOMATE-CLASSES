@@ -226,6 +226,11 @@ class ExecutionPolicyTest(unittest.TestCase):
             "motivo": "sin_cupo",
             "fallos": [{"motivo": "sin_cupo"}],
         }
+        stale_inventory = {
+            "estado": "error",
+            "motivo": "item_pendiente_no_encontrado",
+            "fallos": [{"motivo": "item_pendiente_no_encontrado"}],
+        }
         complete = {
             "estado": "exito",
             "motivo": "horario_completo_para_dias_objetivo",
@@ -233,6 +238,7 @@ class ExecutionPolicyTest(unittest.TestCase):
         }
         self.assertTrue(is_retryable_technical_failure(technical))
         self.assertFalse(is_retryable_technical_failure(business))
+        self.assertFalse(is_retryable_technical_failure(stale_inventory))
         self.assertFalse(is_retryable_technical_failure(complete))
 
 
