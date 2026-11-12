@@ -113,6 +113,7 @@ async def workflow_principal(profile_path=None, dry_run=False, scheduled=False, 
         "avisos": [],
         "planificadas": [],
         "dias_con_clases_programadas": [],
+        "horarios_consultados": [],
         "screenshot_horario_final": "",
         "screenshot_omitido": "",
     }
@@ -193,7 +194,7 @@ async def workflow_principal(profile_path=None, dry_run=False, scheduled=False, 
             await tomar_screenshots(page, "4_navegar_programacion_iniciado")
 
             # --- PASO 4: ITERAR SOBRE DÍAS VÁLIDOS ---
-            for idx, dias_anticipacion in enumerate(dias_validos):
+            for dias_anticipacion in dias_validos:
                 fecha_objetivo = (inicio_ejecucion + timedelta(days=dias_anticipacion)).strftime("%Y-%m-%d")
                 print(f"\n--- Procesando día objetivo: {fecha_objetivo} (anticipación={dias_anticipacion}) ---")
 
@@ -228,6 +229,13 @@ async def workflow_principal(profile_path=None, dry_run=False, scheduled=False, 
                 horarios_faltantes = validacion_horario.get("horarios_faltantes", [])
                 cantidad_a_programar = validacion_horario.get("cantidad_a_programar", 0)
                 horarios_ocupados = validacion_horario.get("horarios_ocupados", [])
+                horario_consultado = {
+                    "fecha": fecha_objetivo,
+                    "ocupados": horarios_ocupados,
+                    "faltantes": horarios_faltantes,
+                    "screenshot": validacion_horario.get("screenshot", ""),
+                }
+                reporte["horarios_consultados"].append(horario_consultado)
 
                 if horarios_ocupados:
                     print(
@@ -293,17 +301,22 @@ async def workflow_principal(profile_path=None, dry_run=False, scheduled=False, 
                 # Cerrar popup de programación antes del siguiente día
                 await cerrar_anuncio_inicial(page, "#gxp0_cls")
 
-                # Captura final del horario para el último día procesado
+                # Después de programar, reemplaza la evidencia inicial por el horario final.
                 if resultado_programacion.get("programadas") and not dry_run:
                     await tomar_screenshots(page, f"6_clases_programadas_dia_{dias_anticipacion}")
-                    if idx == len(dias_validos) - 1:
-                        validacion_horario_final = await validar_horario_dia_objetivo(
-                            page,
-                            dias_desde_hoy=dias_anticipacion,
-                            nombre_screenshot=f"7_horario_final_dia_{dias_anticipacion}",
-                        )
-                        if validacion_horario_final.get("ok"):
-                            reporte["screenshot_horario_final"] = validacion_horario_final.get("screenshot", "")
+                    validacion_horario_final = await validar_horario_dia_objetivo(
+                        page,
+                        dias_desde_hoy=dias_anticipacion,
+                        horarios_habituales=horarios_configurados,
+                        nombre_screenshot=f"7_horario_final_dia_{dias_anticipacion}",
+                    )
+                    if validacion_horario_final.get("ok"):
+                        horario_consultado.update({
+                            "ocupados": validacion_horario_final.get("horarios_ocupados", []),
+                            "faltantes": validacion_horario_final.get("horarios_faltantes", []),
+                            "screenshot": validacion_horario_final.get("screenshot", ""),
+                        })
+                        reporte["screenshot_horario_final"] = horario_consultado["screenshot"]
 
             if dry_run:
                 reporte["estado"] = "exito"
@@ -321,14 +334,6 @@ async def workflow_principal(profile_path=None, dry_run=False, scheduled=False, 
                     else "dias_con_clases_programadas" if reporte["dias_con_clases_programadas"]
                     else "horario_completo_para_dias_objetivo"
                 )
-                if dias_validos and not reporte["avisos"] and not reporte["dias_con_clases_programadas"]:
-                    ultima_validacion = await validar_horario_dia_objetivo(
-                        page,
-                        dias_desde_hoy=dias_validos[-1],
-                        nombre_screenshot="7_horario_completo",
-                    )
-                    if ultima_validacion.get("ok"):
-                        reporte["screenshot_horario_final"] = ultima_validacion.get("screenshot", "")
             else:
                 reporte["estado"] = "exito"
                 reporte["motivo"] = "programacion_completada"
@@ -370,6 +375,11 @@ def _merge_attempt_reports(reports: list[dict]) -> dict:
                 programmed.append(item)
 
     final_report["programadas"] = programmed
+    schedules_by_date = {}
+    for report in reports:
+        for schedule in report.get("horarios_consultados", []):
+            schedules_by_date[schedule.get("fecha", "")] = schedule
+    final_report["horarios_consultados"] = list(schedules_by_date.values())
     final_report["intentos"] = len(reports)
     final_report["reintentos"] = max(0, len(reports) - 1)
     final_report["errores_tecnicos_previos"] = [

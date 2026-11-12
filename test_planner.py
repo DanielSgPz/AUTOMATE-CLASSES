@@ -142,6 +142,100 @@ class PlannerTest(unittest.TestCase):
         self.assertEqual([item.item.group for item in plan.assignments], ["CLASE"])
         self.assertIn("SMART ZONE", plan.notices[0])
 
+    def test_quiz_after_class_limits_day_to_one_class(self):
+        profile = ProgrammingProfile.from_dict({
+            "name": "sequence",
+            "selection_mode": "groups",
+            "selected_groups": ["CLASE"],
+            "allowed_weekdays": [0],
+            "preferred_slots": ["18:00 19:30", "19:30 21:00"],
+            "group_rules": {
+                "CLASE": {
+                    "enabled": True, "location": "GUACARI", "allowed_weekdays": [0],
+                    "preferred_slots": ["18:00 19:30", "19:30 21:00"], "max_per_day": 2,
+                },
+            },
+        })
+        items = [
+            PendingItem("INGA2:107.00", "2. CLASE 9", ItemType.CLASS, 0, level="INGA2", group="CLASE"),
+            PendingItem("INGA2:108.00", "QUIZ UNITS 1*2 - A2", ItemType.QUIZ_UNIT, 1, level="INGA2", group="QUIZ UNITS"),
+            PendingItem("INGA2:109.00", "2. CLASE 10", ItemType.CLASS, 2, level="INGA2", group="CLASE"),
+        ]
+
+        plan = build_programming_plan(profile, items, self.monday, [])
+
+        self.assertEqual([value.item.key for value in plan.assignments], ["INGA2:107.00"])
+        self.assertEqual(plan.assignments[0].slot, "18:00 19:30")
+
+    def test_quiz_before_next_class_blocks_regular_classes(self):
+        profile = ProgrammingProfile.from_dict({
+            "name": "blocked",
+            "selection_mode": "groups",
+            "selected_groups": ["CLASE"],
+            "group_rules": {
+                "CLASE": {
+                    "enabled": True, "location": "GUACARI", "allowed_weekdays": [0],
+                    "preferred_slots": ["18:00 19:30"], "max_per_day": 1,
+                },
+            },
+        })
+        items = [
+            PendingItem("INGA2:108.00", "QUIZ UNITS 1*2 - A2", ItemType.QUIZ_UNIT, 0, level="INGA2", group="QUIZ UNITS"),
+            PendingItem("INGA2:109.00", "2. CLASE 10", ItemType.CLASS, 1, level="INGA2", group="CLASE"),
+        ]
+
+        plan = build_programming_plan(profile, items, self.monday, [])
+
+        self.assertEqual(plan.assignments, [])
+        self.assertIn("QUIZ", plan.notices[0])
+
+    def test_exam_preparation_does_not_block_next_class(self):
+        profile = ProgrammingProfile.from_dict({
+            "name": "preparation",
+            "selection_mode": "groups",
+            "selected_groups": ["CLASE"],
+            "group_rules": {
+                "CLASE": {
+                    "enabled": True, "location": "GUACARI", "allowed_weekdays": [0],
+                    "preferred_slots": ["18:00 19:30", "19:30 21:00"], "max_per_day": 2,
+                },
+            },
+        })
+        items = [
+            PendingItem("INGA2:107.00", "2. CLASE 9", ItemType.CLASS, 0, level="INGA2", group="CLASE"),
+            PendingItem("INGA2:108.00", "PREPARACIÓN EXAMEN FINAL", ItemType.FINAL_EXAM_PREPARATION, 1, level="INGA2", group="PREPARACIÓN EXAMEN FINAL"),
+            PendingItem("INGA2:109.00", "2. CLASE 10", ItemType.CLASS, 2, level="INGA2", group="CLASE"),
+        ]
+
+        plan = build_programming_plan(profile, items, self.monday, [])
+
+        self.assertEqual(
+            [value.item.key for value in plan.assignments],
+            ["INGA2:107.00", "INGA2:109.00"],
+        )
+
+    def test_final_exam_blocks_next_class(self):
+        profile = ProgrammingProfile.from_dict({
+            "name": "exam",
+            "selection_mode": "groups",
+            "selected_groups": ["CLASE"],
+            "group_rules": {
+                "CLASE": {
+                    "enabled": True, "location": "GUACARI", "allowed_weekdays": [0],
+                    "preferred_slots": ["18:00 19:30"], "max_per_day": 1,
+                },
+            },
+        })
+        items = [
+            PendingItem("INGA2:110.00", "EXAMEN FINAL - A2", ItemType.FINAL_EXAM, 0, level="INGA2", group="EXAMEN FINAL"),
+            PendingItem("INGA2:111.00", "2. CLASE 11", ItemType.CLASS, 1, level="INGA2", group="CLASE"),
+        ]
+
+        plan = build_programming_plan(profile, items, self.monday, [])
+
+        self.assertEqual(plan.assignments, [])
+        self.assertIn("EXAMEN FINAL", plan.notices[0])
+
 
 class ProfileTest(unittest.TestCase):
     def test_exposes_days_enabled_by_all_rules(self):

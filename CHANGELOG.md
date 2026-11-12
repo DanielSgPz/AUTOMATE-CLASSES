@@ -8,6 +8,8 @@
 - Los fallos de localización incluyen screenshot y claves visibles para diagnóstico.
 - Telegram agrupa los ítems informativos repetidos y muestra su cantidad.
 - GitHub Actions registra la expresión cron y las horas UTC/Colombia del disparo.
+- El reporte de Telegram oculta el inventario informativo, resume los horarios y adjunta su evidencia incluso ante errores.
+- Quiz y examen final respetan la secuencia académica: limitan o bloquean clases posteriores; preparación de examen no bloquea.
 
 ## [2026-11-07] Perfil web configurable y sincronizado con GitHub
 

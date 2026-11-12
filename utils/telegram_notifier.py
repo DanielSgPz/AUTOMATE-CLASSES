@@ -92,7 +92,7 @@ def construir_resumen_telegram(reporte, inicio, fin):
         ])
 
     if motivo == "sin_clases_programables":
-        tipos_bloqueantes = {"quiz", "preparacion_examen_final", "examen_final"}
+        tipos_bloqueantes = {"quiz", "examen_final"}
         if any(item["tipo"] in tipos_bloqueantes for item in reporte.get("items_especiales", [])):
             lineas.extend(["", "ℹ️ No se matricularon CLASEs: complete primero el quiz o examen pendiente."])
         else:
@@ -103,26 +103,17 @@ def construir_resumen_telegram(reporte, inicio, fin):
         for dia in reporte.get("dias_con_clases_programadas", []):
             lineas.append(f"   📅 {dia['fecha']}: {', '.join(dia['horarios'])}")
 
-    items_especiales = reporte.get("items_especiales", [])
-    if items_especiales:
-        lineas.extend(["", "📋 Items pendientes (no programables automáticamente):"])
-        ETIQUETAS = {
-            "quiz": "🧪 Quiz",
-            "preparacion_examen_final": "📝 Preparación examen final",
-            "examen_final": "📝 Examen final",
-            "smart_zone": "🎯 Smart Zone",
-        }
-        grouped_special_items = {}
-        for item in items_especiales:
-            key = (item["tipo"], item["nombre"])
-            if key not in grouped_special_items:
-                grouped_special_items[key] = {**item, "cantidad": 0}
-            grouped_special_items[key]["cantidad"] += item.get("cantidad", 1)
-        for item in grouped_special_items.values():
-            etiqueta = ETIQUETAS.get(item["tipo"], item["tipo"])
-            cantidad = item.get("cantidad", 1)
-            suffix = f" ×{cantidad}" if cantidad > 1 else ""
-            lineas.append(f"   📌 {etiqueta}: {item['nombre']}{suffix}")
+    horarios_consultados = reporte.get("horarios_consultados", [])
+    if horarios_consultados:
+        lineas.extend(["", "🗓️ Horarios consultados"])
+        for horario in horarios_consultados:
+            ocupados = ", ".join(horario.get("ocupados", [])) or "ninguno"
+            faltantes = ", ".join(horario.get("faltantes", [])) or "ninguno"
+            lineas.extend([
+                f"   📅 {horario.get('fecha', '(sin fecha)')}",
+                f"      Ocupados: {ocupados}",
+                f"      Faltantes: {faltantes}",
+            ])
 
     if programadas:
         lineas.extend(["", "✅ Clases programadas"])
@@ -241,10 +232,22 @@ def enviar_resumen_telegram(telegram_cfg, reporte, inicio, fin):
 
     enviado = enviar_mensaje_telegram(telegram_cfg.bot_token, telegram_cfg.chat_id, mensaje)
 
+    sent_schedule_paths = set()
+    for horario in reporte.get("horarios_consultados", []):
+        screenshot = horario.get("screenshot")
+        if screenshot and screenshot not in sent_schedule_paths and os.path.exists(screenshot):
+            enviar_foto_telegram(
+                telegram_cfg.bot_token,
+                telegram_cfg.chat_id,
+                screenshot,
+                caption=f"🗓️ Horario del {horario.get('fecha', 'día objetivo')}",
+            )
+            sent_schedule_paths.add(screenshot)
+
     screenshot_horario_final = reporte.get("screenshot_horario_final")
     if (
-        reporte.get("estado") == "exito"
-        and screenshot_horario_final
+        screenshot_horario_final
+        and screenshot_horario_final not in sent_schedule_paths
         and os.path.exists(screenshot_horario_final)
     ):
         enviar_foto_telegram(

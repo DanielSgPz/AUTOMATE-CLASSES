@@ -134,6 +134,7 @@ Abrir `http://127.0.0.1:8000`. Desde allí se puede:
 - Ejecutar una vez al día a las 06:05 (hora Colombia), revisando hoy y mañana.
 - Reintentar hasta tres veces, cada diez minutos, únicamente ante errores técnicos temporales.
 - Esperar cada refresco AJAX al recorrer pendientes paginados antes de seleccionar una clase.
+- Respetar quiz y examen final como barreras de secuencia sin bloquear por preparación de examen.
 - Consultar sedes, días y horarios publicados por Smart sin confirmar la asignación.
 - Ejecutar una simulación.
 - Confirmar una ejecución real.

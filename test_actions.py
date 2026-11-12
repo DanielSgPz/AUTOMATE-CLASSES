@@ -4,7 +4,7 @@ from utils.actions import _detalle_error_programacion, _motivo_error_programacio
 
 
 class PendientesTest(unittest.TestCase):
-    def test_las_clases_no_son_bloqueadas_por_quiz_o_examen(self):
+    def test_separa_clases_e_items_informativos(self):
         clases, especiales = _separar_items_pendientes([
             "QUIZ 1",
             "EXAMEN FINAL",

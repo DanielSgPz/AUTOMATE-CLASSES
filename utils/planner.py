@@ -5,6 +5,9 @@ from utils.item_types import ItemType
 from utils.profile import ProgrammingProfile
 
 
+CLASS_SEQUENCE_BARRIERS = {ItemType.QUIZ_UNIT, ItemType.FINAL_EXAM}
+
+
 @dataclass(frozen=True)
 class PendingItem:
     key: str
@@ -28,6 +31,32 @@ class ProgrammingPlan:
     target_date: date
     assignments: list[PlannedAssignment] = field(default_factory=list)
     notices: list[str] = field(default_factory=list)
+
+
+def _class_sequence_candidates(pending_items: list[PendingItem]) -> tuple[list[PendingItem], PendingItem | None]:
+    """Respeta la secuencia académica sin convertir informativos en asignaciones.
+
+    Un quiz o examen final anterior a la próxima clase bloquea la matrícula. Si
+    aparece después de una o más clases consecutivas, limita el lote justo allí.
+    Preparación de examen y Smart Zone no son barreras para las clases regulares.
+    """
+    ordered = sorted(pending_items, key=lambda item: item.source_order)
+    first_class = next((item for item in ordered if item.item_type == ItemType.CLASS), None)
+    if first_class is None:
+        return [], None
+
+    if first_class.level:
+        sequence = [item for item in ordered if item.level == first_class.level]
+    else:
+        sequence = ordered
+
+    candidates = []
+    for item in sequence:
+        if item.item_type in CLASS_SEQUENCE_BARRIERS:
+            return candidates, item
+        if item.item_type == ItemType.CLASS:
+            candidates.append(item)
+    return candidates, None
 
 
 def build_programming_plan(
@@ -69,10 +98,17 @@ def build_programming_plan(
                     f"{group} se omitió porque una de sus franjas ya está ocupada."
                 )
                 continue
-            candidates = sorted(
-                (item for item in pending_items if item.group.upper() == group),
-                key=lambda item: item.source_order,
-            )
+            if group == "CLASE":
+                candidates, blocker = _class_sequence_candidates(pending_items)
+                if blocker and not candidates:
+                    plan.notices.append(
+                        f"CLASE bloqueada por {blocker.description}, que debe completarse primero."
+                    )
+            else:
+                candidates = sorted(
+                    (item for item in pending_items if item.group.upper() == group),
+                    key=lambda item: item.source_order,
+                )
             scheduled_for_group = 0
             for item in candidates:
                 slot = next(
@@ -99,6 +135,17 @@ def build_programming_plan(
         if profile.selection_mode == "groups":
             selected_groups = set(profile.selected_groups)
             candidates = [item for item in candidates if item.group.upper() in selected_groups]
+            if "CLASE" in selected_groups:
+                class_candidates, blocker = _class_sequence_candidates(pending_items)
+                non_class_candidates = [item for item in candidates if item.item_type != ItemType.CLASS]
+                candidates = sorted(
+                    class_candidates + non_class_candidates,
+                    key=lambda item: item.source_order,
+                )
+                if blocker and not class_candidates:
+                    plan.notices.append(
+                        f"CLASE bloqueada por {blocker.description}, que debe completarse primero."
+                    )
 
         for item in candidates[:profile.max_items_per_day]:
             slot = next((value for value in available_slots if value not in used_slots), None)
@@ -118,10 +165,17 @@ def build_programming_plan(
         if not rule or not rule.enabled or target_date.weekday() not in rule.allowed_weekdays:
             continue
 
-        candidates = sorted(
-            (item for item in pending_items if item.item_type == item_type),
-            key=lambda item: item.source_order,
-        )
+        if item_type == ItemType.CLASS:
+            candidates, blocker = _class_sequence_candidates(pending_items)
+            if blocker and not candidates:
+                plan.notices.append(
+                    f"CLASE bloqueada por {blocker.description}, que debe completarse primero."
+                )
+        else:
+            candidates = sorted(
+                (item for item in pending_items if item.item_type == item_type),
+                key=lambda item: item.source_order,
+            )
         scheduled_for_type = 0
         for item in candidates:
             slot = next(
