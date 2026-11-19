@@ -2,8 +2,8 @@ name: Automate Classes
 
 on:
   schedule:
-    # 11:05 UTC equivale a 06:05 en Colombia (UTC-5).
-    - cron: "5 11 * * *"
+    - cron: "30 6 * * *"
+      timezone: "America/Bogota"
   workflow_dispatch:
 
 concurrency:
