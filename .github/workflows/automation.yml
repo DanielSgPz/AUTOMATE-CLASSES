@@ -1,9 +1,6 @@
 name: Automate Classes
 
 on:
-  schedule:
-    - cron: "30 6 * * *"
-      timezone: "America/Bogota"
   workflow_dispatch:
 
 concurrency:
@@ -26,7 +23,6 @@ jobs:
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
       PROGRAMMING_PROFILE_JSON: ${{ vars.PROGRAMMING_PROFILE_JSON }}
-      TRIGGER_SCHEDULE: ${{ github.event.schedule }}
 
     steps:
       - name: Checkout repository
@@ -37,9 +33,9 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Show schedule timing
+      - name: Show dispatch timing
         run: |
-          echo "Schedule expression: ${TRIGGER_SCHEDULE:-manual}"
+          echo "Event: ${{ github.event_name }}"
           echo "UTC: $(date -u '+%Y-%m-%d %H:%M:%S')"
           TZ=America/Bogota date '+Colombia: %Y-%m-%d %H:%M:%S'
 
